@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LoveConnect</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>LoveConnect</h1>
+  <p>Find your perfect match 💖</p>
+</header>
+
+<div class="container">
+
+  <!-- Auth / Registration / Login -->
+  <div id="auth-section">
+    <h2 id="form-title">Sign Up</h2>
+
+    <input type="text" id="name" placeholder="Your Name">
+    <input type="email" id="email" placeholder="your@email.com">
+    <input type="password" id="password" placeholder="Password">
+
+    <select id="gender">
+      <option value="">Select Gender</option>
+      <option value="Male">Male</option>
+      <option value="Female">Female</option>
+      
+    </select>
+
+    <select id="interest">
+      <option value="">Interested In</option>
+      <option value="Male">Male</option>
+      <option value="Female">Female</option>
+      
+    </select>
+
+    <button id="submit-btn" onclick="submitForm()">Sign Up</button>
+    <p id="toggle-text">Already have an account? <a href="#" onclick="toggleForm()">Log In</a></p>
+  </div>
+
+  <!-- Main app area -->
+  <div id="app" style="display:none;">
+
+    <!-- Profile Completion Screen -->
+    <div id="profile-setup" style="display:none; max-width:500px; margin:0 auto;">
+      <h2>Complete Your Profile 💕</h2>
+      <p>One last step before you can start matching!</p>
+
+      <div style="margin:20px 0;">
+        <label>Profile Picture</label><br>
+        <input type="file" id="photo-input" accept="image/*">
+        <div id="preview" style="margin-top:10px;">
+          <img id="photo-preview" style="max-width:180px; border-radius:12px; display:none;">
+        </div>
+      </div>
+
+      <textarea id="bio" placeholder="Tell others about yourself... (max 500 characters)" rows="5" maxlength="500"></textarea>
+
+      <button onclick="saveProfile()" style="margin-top:20px; padding:12px 24px;">Save & Start Matching</button>
+    </div>
+
+    <!-- Matching / Browsing Screen -->
+    <div id="matching-screen" style="display:none;">
+      <h2>Welcome back, <span id="current-user-name">...</span></h2>
+      <button onclick="logout()" style="margin-bottom:20px;">Log out</button>
+
+      <h3>Find someone special</h3>
+      <div id="profiles"></div>
+    </div>
+
+        <!-- Chat Screen -->
+    <div id="chat-screen" style="display:none; max-width:600px; margin:0 auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <button onclick="closeChat()" style="padding:8px 16px;">← Back</button>
+        <h3>Chat with <span id="chat-with-name">...</span></h3>
+        <div></div>
+      </div>
+      
+      <div id="chat-messages" style="height:400px; overflow-y:auto; border:1px solid #ddd; border-radius:10px; padding:15px; background:#fafafa; margin-bottom:15px;">
+        <p style="text-align:center; color:#888;">Loading messages...</p>
+      </div>
+      
+      <div style="display:flex; gap:10px;">
+        <input type="text" id="message-input" placeholder="Type a message..." style="flex:1; padding:12px; border-radius:25px; border:1px solid #ddd;">
+        <button onclick="sendMessage()" style="padding:12px 24px; border-radius:25px; background:#ff4d8d; color:white; border:none; cursor:pointer;">Send</button>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
