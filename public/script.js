@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:4000/api";
+const API_URL = "http://localhost:4000/api";  // MUST be 4000, not 3000
 
 let token = null;
 let currentUser = null;
