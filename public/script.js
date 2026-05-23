@@ -1,5 +1,8 @@
-const API_URL = "http://localhost:4000/api";  // MUST be 4000, not 3000
+// ❌ OLD (local development)
+const API_URL = "http://localhost:4000/api";
 
+// ✅ NEW (production)
+const API_URL = "https://loveamon.onrender.com/api";
 let token = null;
 let currentUser = null;
 let currentChatUserId = null;
