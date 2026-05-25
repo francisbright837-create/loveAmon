@@ -8,12 +8,22 @@ router.get("/profiles", async (req, res) => {
   try {
     const currentUser = await User.findById(req.userId);
     
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Build list of IDs to exclude
+    const excludeIds = [req.userId, ...currentUser.likes, ...currentUser.matches];
+    
+    // Gender filter: only filter if interest is set and not "both"
+    let genderFilter = {};
+    if (currentUser.interest && currentUser.interest !== "both") {
+      genderFilter = { gender: currentUser.interest };
+    }
+
     const profiles = await User.find({
-      _id: { 
-        $ne: req.userId,
-        $nin: [...currentUser.likes, ...currentUser.matches]
-      },
-      gender: currentUser.interest === "both" ? { $exists: true } : currentUser.interest
+      _id: { $nin: excludeIds },
+      ...genderFilter
     })
     .select("-password -likes -matches -__v")
     .limit(20);
@@ -70,6 +80,26 @@ router.get("/matches", async (req, res) => {
       .populate("matches", "name profilePicture bio");
     
     res.json(user.matches);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Temporary debug: see all users count
+router.get("/debug-count", async (req, res) => {
+  try {
+    const total = await User.countDocuments();
+    const currentUser = await User.findById(req.userId);
+    const excludeIds = [req.userId, ...currentUser.likes, ...currentUser.matches];
+    const available = await User.countDocuments({ _id: { $nin: excludeIds } });
+    
+    res.json({
+      totalUsers: total,
+      excluded: excludeIds.length,
+      availableToShow: available,
+      yourInterest: currentUser.interest,
+      yourGender: currentUser.gender
+    });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
