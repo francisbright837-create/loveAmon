@@ -3,32 +3,48 @@ const User = require("../models/User");
 
 const router = express.Router();
 
-// Get potential matches (excluding already liked/matched)
+// Get potential matches (paginated, optimized)
 router.get("/profiles", async (req, res) => {
   try {
-    const currentUser = await User.findById(req.userId);
+    const currentUser = await User.findById(req.userId).lean();
     
     if (!currentUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Build list of IDs to exclude
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
     const excludeIds = [req.userId, ...currentUser.likes, ...currentUser.matches];
     
-    // Gender filter: only filter if interest is set and not "both"
     let genderFilter = {};
     if (currentUser.interest && currentUser.interest !== "both") {
       genderFilter = { gender: currentUser.interest };
     }
 
-    const profiles = await User.find({
-      _id: { $nin: excludeIds },
-      ...genderFilter
-    })
-    .select("-password -likes -matches -__v")
-    .limit(20);
+    const [profiles, total] = await Promise.all([
+      User.find({
+        _id: { $nin: excludeIds },
+        ...genderFilter
+      })
+      .select("-password -likes -matches -__v")
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+      
+      User.countDocuments({
+        _id: { $nin: excludeIds },
+        ...genderFilter
+      })
+    ]);
 
-    res.json(profiles);
+    res.json({
+      profiles,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalProfiles: total
+    });
   } catch (err) {
     console.error("Fetch profiles error:", err);
     res.status(500).json({ message: "Server error" });
@@ -45,8 +61,10 @@ router.post("/like/:targetId", async (req, res) => {
       return res.status(400).json({ message: "Cannot like yourself" });
     }
 
-    const user = await User.findById(userId);
-    const target = await User.findById(targetId);
+    const [user, target] = await Promise.all([
+      User.findById(userId),
+      User.findById(targetId)
+    ]);
 
     if (!target) return res.status(404).json({ message: "User not found" });
     if (user.likes.includes(targetId)) {
@@ -56,13 +74,11 @@ router.post("/like/:targetId", async (req, res) => {
     user.likes.push(targetId);
     await user.save();
 
-    // Check for mutual match
     const isMatch = target.likes.includes(userId);
     if (isMatch) {
       user.matches.push(targetId);
       target.matches.push(userId);
-      await user.save();
-      await target.save();
+      await Promise.all([user.save(), target.save()]);
       return res.json({ match: true, message: "It's a match! 🎉", user: target });
     }
 
@@ -73,33 +89,14 @@ router.post("/like/:targetId", async (req, res) => {
   }
 });
 
-// Get my matches (for chat)
+// Get my matches
 router.get("/matches", async (req, res) => {
   try {
     const user = await User.findById(req.userId)
-      .populate("matches", "name profilePicture bio");
+      .populate("matches", "name profilePicture bio")
+      .lean();
     
     res.json(user.matches);
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Temporary debug: see all users count
-router.get("/debug-count", async (req, res) => {
-  try {
-    const total = await User.countDocuments();
-    const currentUser = await User.findById(req.userId);
-    const excludeIds = [req.userId, ...currentUser.likes, ...currentUser.matches];
-    const available = await User.countDocuments({ _id: { $nin: excludeIds } });
-    
-    res.json({
-      totalUsers: total,
-      excluded: excludeIds.length,
-      availableToShow: available,
-      yourInterest: currentUser.interest,
-      yourGender: currentUser.gender
-    });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
