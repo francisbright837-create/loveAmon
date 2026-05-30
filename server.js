@@ -14,12 +14,15 @@ const authRoutes = require("./routes/auth");
 const matchRoutes = require("./routes/match");
 const profileRoutes = require("./routes/profile");
 const messageRoutes = require("./routes/message");
+const adminRoutes = require("./routes/admin");
 
 const app = express();
 
+// Security middleware
 app.use(helmet());
 app.use(mongoSanitize());
 
+// CORS - restrict to your domains only
 const allowedOrigins = [
   "http://localhost:4000",
   "https://loveamon.onrender.com"
@@ -36,11 +39,12 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json({ limit: "5mb" })); // Reduced from 10mb
+app.use(express.json({ limit: "5mb" }));
 app.use(express.static("public"));
 
+// Connect to MongoDB with connection options
 mongoose.connect(process.env.MONGO_URI, {
-  maxPoolSize: 10, // Back to original
+  maxPoolSize: 10,
   serverSelectionTimeoutMS: 5000,
   socketTimeoutMS: 45000,
 })
@@ -50,12 +54,16 @@ mongoose.connect(process.env.MONGO_URI, {
     process.exit(1);
   });
 
+// Auth Middleware
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ message: "No token provided" });
   }
+
   const token = authHeader.split(" ")[1];
+
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.userId = decoded.id;
@@ -65,20 +73,26 @@ function authMiddleware(req, res, next) {
   }
 }
 
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", authMiddleware, profileRoutes);
 app.use("/api/match", authMiddleware, matchRoutes);
 app.use("/api/messages", authMiddleware, messageRoutes);
+app.use("/api/admin", adminRoutes);
 
+// Health check
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
+// Global Error Handler
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
+  
   if (err.message === "Not allowed by CORS") {
     return res.status(403).json({ message: "Access denied" });
   }
+  
   res.status(500).json({ message: "Something went wrong" });
 });
 
