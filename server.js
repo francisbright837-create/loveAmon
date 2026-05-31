@@ -15,6 +15,10 @@ const matchRoutes = require("./routes/match");
 const profileRoutes = require("./routes/profile");
 const messageRoutes = require("./routes/message");
 const adminRoutes = require("./routes/admin");
+const videoRoutes = require("./routes/video");
+
+// ... other routes
+app.use("/api/videos", authMiddleware, videoRoutes);
 
 const app = express();
 
@@ -22,27 +26,16 @@ const app = express();
 app.use(helmet());
 app.use(mongoSanitize());
 
-// CORS - restrict to your domains only
-const allowedOrigins = [
-  "http://localhost:4000",
-  "https://loveamon.onrender.com"
-];
-
+// CORS - allow all origins for now
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
+  origin: true,
   credentials: true
 }));
 
 app.use(express.json({ limit: "5mb" }));
 app.use(express.static("public"));
 
-// Connect to MongoDB with connection options
+// Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
   maxPoolSize: 10,
   serverSelectionTimeoutMS: 5000,
@@ -88,11 +81,6 @@ app.get("/health", (req, res) => {
 // Global Error Handler
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
-  
-  if (err.message === "Not allowed by CORS") {
-    return res.status(403).json({ message: "Access denied" });
-  }
-  
   res.status(500).json({ message: "Something went wrong" });
 });
 
