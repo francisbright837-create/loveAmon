@@ -1,19 +1,9 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const rateLimit = require("express-rate-limit");
 const User = require("../models/User");
 
 const router = express.Router();
-
-// Rate limiting: max 5 attempts per 15 minutes per IP
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
-  message: { message: "Too many attempts, please try again later." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
 
 // Password validation: min 6 chars, at least 1 letter and 1 number
 function isValidPassword(password) {
@@ -31,7 +21,7 @@ function sanitize(str) {
 }
 
 // Register
-router.post("/register", authLimiter, async (req, res) => {
+router.post("/register", async (req, res) => {
   try {
     let { name, email, password, gender, interest } = req.body;
 
@@ -80,7 +70,7 @@ router.post("/register", authLimiter, async (req, res) => {
 });
 
 // Login
-router.post("/login", authLimiter, async (req, res) => {
+router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -98,7 +88,6 @@ router.post("/login", authLimiter, async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // Use environment variable for JWT secret
     const token = jwt.sign(
       { id: user._id }, 
       process.env.JWT_SECRET, 
