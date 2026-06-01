@@ -15,27 +15,32 @@ const matchRoutes = require("./routes/match");
 const profileRoutes = require("./routes/profile");
 const messageRoutes = require("./routes/message");
 const adminRoutes = require("./routes/admin");
-const videoRoutes = require("./routes/video");
+const videoRoutes = require("./routes/video"); // Move import here
 
-// ... other routes
-app.use("/api/videos", authMiddleware, videoRoutes);
+const app = express(); // app is created HERE
 
-const app = express();
-
-// Security middleware
 app.use(helmet());
 app.use(mongoSanitize());
 
-// CORS - allow all origins for now
+const allowedOrigins = [
+  "http://localhost:4000",
+  "https://loveamon.onrender.com"
+];
+
 app.use(cors({
-  origin: true,
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true
 }));
 
 app.use(express.json({ limit: "5mb" }));
 app.use(express.static("public"));
 
-// Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI, {
   maxPoolSize: 10,
   serverSelectionTimeoutMS: 5000,
@@ -47,16 +52,12 @@ mongoose.connect(process.env.MONGO_URI, {
     process.exit(1);
   });
 
-// Auth Middleware
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
-
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ message: "No token provided" });
   }
-
   const token = authHeader.split(" ")[1];
-
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.userId = decoded.id;
@@ -66,21 +67,23 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// Routes
+// Routes - ALL after app is created
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", authMiddleware, profileRoutes);
 app.use("/api/match", authMiddleware, matchRoutes);
 app.use("/api/messages", authMiddleware, messageRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/videos", authMiddleware, videoRoutes); // Now app exists!
 
-// Health check
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
-// Global Error Handler
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({ message: "Access denied" });
+  }
   res.status(500).json({ message: "Something went wrong" });
 });
 
