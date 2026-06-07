@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 const router = express.Router();
+// ... rest of file (no rate limit stuff)
 
 // Password validation: min 6 chars, at least 1 letter and 1 number
 function isValidPassword(password) {

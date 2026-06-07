@@ -1,9 +1,95 @@
-const API_URL = "https://loveamon.onrender.com/api";
+// ============================================
+// CONFIGURATION
+// ============================================
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:4000/api'
+  : 'https://loveamon.onrender.com/api';
 
 let token = null;
 let currentUser = null;
 let currentChatUserId = null;
 
+// ============================================
+// UI HELPERS - Replace alert() with proper feedback
+// ============================================
+function showMessage(message, type = 'error') {
+  // Remove existing messages
+  const existing = document.querySelector('.app-message');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.className = `app-message ${type}`;
+  div.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 15px 25px;
+    border-radius: 10px;
+    font-weight: 500;
+    z-index: 10000;
+    animation: slideDown 0.3s ease;
+    max-width: 90%;
+    text-align: center;
+    ${type === 'success' ? 'background: #d4edda; color: #155724; border: 1px solid #c3e6cb;' : 
+      type === 'loading' ? 'background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' :
+      'background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'}
+  `;
+  
+  if (type === 'loading') {
+    div.innerHTML = `<span style="display:inline-block; width:16px; height:16px; border:2px solid #856404; border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin-right:10px; vertical-align:middle;"></span>${message}`;
+  } else {
+    div.textContent = message;
+  }
+
+  document.body.appendChild(div);
+
+  // Auto-remove after 5 seconds for success/error
+  if (type !== 'loading') {
+    setTimeout(() => {
+      if (div.parentNode) div.remove();
+    }, 5000);
+  }
+
+  return div;
+}
+
+function hideMessage() {
+  const msg = document.querySelector('.app-message');
+  if (msg) msg.remove();
+}
+
+function setButtonLoading(button, loading) {
+  if (loading) {
+    button.dataset.originalText = button.textContent;
+    button.textContent = 'Please wait...';
+    button.disabled = true;
+    button.style.opacity = '0.7';
+    button.style.cursor = 'not-allowed';
+  } else {
+    button.textContent = button.dataset.originalText || 'Sign Up';
+    button.disabled = false;
+    button.style.opacity = '1';
+    button.style.cursor = 'pointer';
+  }
+}
+
+// Add animation styles to head
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(style);
+
+// ============================================
+// INITIALIZATION
+// ============================================
 window.onload = function () {
   token = localStorage.getItem("token");
   if (token) {
@@ -11,6 +97,9 @@ window.onload = function () {
   }
 };
 
+// ============================================
+// FORM TOGGLE
+// ============================================
 function toggleForm() {
   const title = document.getElementById("form-title");
   const btn = document.getElementById("submit-btn");
@@ -31,15 +120,29 @@ function toggleForm() {
     document.getElementById("gender").style.display = "block";
     document.getElementById("interest").style.display = "block";
   }
+  
+  // Clear any messages
+  hideMessage();
 }
 
+// ============================================
+// ✅ FIXED SUBMIT HANDLER
+// ============================================
 async function submitForm() {
   const isLogin = document.getElementById("form-title").textContent === "Log In";
-  if (isLogin) await login();
-  else await register();
+  const btn = document.getElementById("submit-btn");
+
+  if (isLogin) {
+    await login(btn);
+  } else {
+    await register(btn);
+  }
 }
 
-async function register() {
+// ============================================
+// ✅ FIXED REGISTER - With proper feedback
+// ============================================
+async function register(btn) {
   const payload = {
     name: document.getElementById("name").value.trim(),
     email: document.getElementById("email").value.trim(),
@@ -48,65 +151,147 @@ async function register() {
     interest: document.getElementById("interest").value,
   };
 
+  // Validation
   if (!payload.name || !payload.email || !payload.password || !payload.gender || !payload.interest) {
-    alert("Please fill all fields!");
+    showMessage("❌ Please fill in all fields!");
     return;
   }
+
+  if (payload.password.length < 6) {
+    showMessage("❌ Password must be at least 6 characters!");
+    return;
+  }
+
+  if (!payload.email.includes('@')) {
+    showMessage("❌ Please enter a valid email!");
+    return;
+  }
+
+  setButtonLoading(btn, true);
+  showMessage("Creating your account...", "loading");
 
   try {
     const res = await fetch(API_URL + "/auth/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
       body: JSON.stringify(payload),
     });
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || "Registration failed");
+    
+    if (!res.ok) {
+      throw new Error(data.message || `Registration failed (${res.status})`);
+    }
 
-    alert("Account created! Please log in now.");
-    toggleForm();
+    // ✅ SUCCESS
+    hideMessage();
+    showMessage("✅ Account created! Please log in now.", "success");
+
+    // Clear form
+    document.getElementById("email").value = "";
+    document.getElementById("password").value = "";
+    document.getElementById("name").value = "";
+    document.getElementById("gender").value = "";
+    document.getElementById("interest").value = "";
+
+    // Switch to login after 2 seconds
+    setTimeout(() => {
+      toggleForm();
+    }, 2000);
+
   } catch (err) {
-    alert(err.message);
+    console.error("Register error:", err);
+    hideMessage();
+    
+    let msg = err.message;
+    if (err.message === "Failed to fetch") {
+      msg = "❌ Cannot connect to server. Is the server running?";
+    }
+    
+    showMessage(msg, "error");
+  } finally {
+    setButtonLoading(btn, false);
   }
 }
 
-async function login() {
+// ============================================
+// ✅ FIXED LOGIN - With proper feedback
+// ============================================
+async function login(btn) {
   const payload = {
     email: document.getElementById("email").value.trim(),
     password: document.getElementById("password").value,
   };
 
   if (!payload.email || !payload.password) {
-    alert("Please enter email and password!");
+    showMessage("❌ Please enter email and password!");
     return;
   }
+
+  setButtonLoading(btn, true);
+  showMessage("Logging in...", "loading");
 
   try {
     const res = await fetch(API_URL + "/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
       body: JSON.stringify(payload),
     });
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || "Login failed");
+    
+    if (!res.ok) {
+      throw new Error(data.message || `Login failed (${res.status})`);
+    }
 
+    // ✅ SUCCESS
+    hideMessage();
+    
     token = data.token;
     localStorage.setItem("token", token);
-    showApp();
+    
+    showMessage("✅ Login successful!", "success");
+
+    setTimeout(() => {
+      showApp();
+    }, 1000);
+
   } catch (err) {
-    alert(err.message);
+    console.error("Login error:", err);
+    hideMessage();
+    
+    let msg = err.message;
+    if (err.message === "Failed to fetch") {
+      msg = "❌ Cannot connect to server. Check if server is running.";
+    }
+    
+    showMessage(msg, "error");
+  } finally {
+    setButtonLoading(btn, false);
   }
 }
 
+// ============================================
+// LOGOUT
+// ============================================
 function logout() {
   localStorage.removeItem("token");
   token = null;
   currentUser = null;
   document.getElementById("app").style.display = "none";
   document.getElementById("auth-section").style.display = "block";
+  hideMessage();
 }
 
+// ============================================
+// SHOW APP
+// ============================================
 async function showApp() {
   document.getElementById("auth-section").style.display = "none";
   document.getElementById("app").style.display = "block";
@@ -132,12 +317,14 @@ async function showApp() {
       fetchProfiles();
     }
   } catch (err) {
-    alert(err.message);
+    showMessage(err.message, "error");
     logout();
   }
 }
 
-// Photo preview
+// ============================================
+// PHOTO PREVIEW
+// ============================================
 document.getElementById("photo-input")?.addEventListener("change", function(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -150,6 +337,9 @@ document.getElementById("photo-input")?.addEventListener("change", function(e) {
   reader.readAsDataURL(file);
 });
 
+// ============================================
+// SAVE PROFILE
+// ============================================
 async function saveProfile() {
   const bio = document.getElementById("bio").value.trim();
   const fileInput = document.getElementById("photo-input");
@@ -164,7 +354,7 @@ async function saveProfile() {
   }
 
   if (!profilePicture && !bio) {
-    alert("Please add at least a photo or a short bio!");
+    showMessage("Please add at least a photo or a short bio!", "error");
     return;
   }
 
@@ -183,12 +373,17 @@ async function saveProfile() {
       throw new Error(err.message || "Failed to save profile");
     }
 
+    hideMessage();
+    showMessage("✅ Profile saved!", "success");
     await showApp();
   } catch (err) {
-    alert("Error: " + err.message);
+    showMessage("Error: " + err.message, "error");
   }
 }
 
+// ============================================
+// FETCH & DISPLAY PROFILES
+// ============================================
 async function fetchProfiles() {
   try {
     const res = await fetch(API_URL + "/match/profiles", {
@@ -196,7 +391,8 @@ async function fetchProfiles() {
     });
     if (!res.ok) throw new Error("Failed to load profiles");
 
-    const profiles = await res.json();
+    const data = await res.json();
+    const profiles = data.profiles || data;
     displayProfiles(profiles);
   } catch (err) {
     document.getElementById("profiles").innerHTML = `<p style="color:red">${err.message}</p>`;
@@ -207,7 +403,7 @@ function displayProfiles(profiles) {
   const container = document.getElementById("profiles");
   container.innerHTML = "";
 
-  if (profiles.length === 0) {
+  if (!profiles || profiles.length === 0) {
     container.innerHTML = "<p>No other profiles available yet.</p>";
     return;
   }
@@ -234,6 +430,9 @@ function displayProfiles(profiles) {
   });
 }
 
+// ============================================
+// LIKE USER
+// ============================================
 async function likeUser(targetId) {
   try {
     const res = await fetch(API_URL + `/match/like/${targetId}`, {
@@ -249,19 +448,20 @@ async function likeUser(targetId) {
     if (!res.ok) throw new Error(data.message || "Like failed");
 
     if (data.match) {
-      alert("It's a match! 🎉");
+      showMessage("It's a match! 🎉", "success");
     } else {
-      alert("Liked! 💕");
+      showMessage("Liked! 💕", "success");
     }
 
     fetchProfiles();
   } catch (err) {
-    alert("Error: " + err.message);
+    showMessage("Error: " + err.message, "error");
   }
 }
 
-// ===== MESSAGING FUNCTIONS =====
-
+// ============================================
+// CHAT FUNCTIONS
+// ============================================
 function openChat(userId, userName) {
   currentChatUserId = userId;
   document.getElementById("matching-screen").style.display = "none";
@@ -270,7 +470,6 @@ function openChat(userId, userName) {
   
   fetchMessages(userId);
   
-  // Auto-refresh messages every 3 seconds
   window.chatInterval = setInterval(() => fetchMessages(userId), 3000);
 }
 
@@ -321,7 +520,6 @@ function displayMessages(messages) {
     container.appendChild(msgDiv);
   });
   
-  // Scroll to bottom
   container.scrollTop = container.scrollHeight;
 }
 
@@ -346,7 +544,7 @@ async function sendMessage() {
     input.value = "";
     fetchMessages(currentChatUserId);
   } catch (err) {
-    alert("Error sending message: " + err.message);
+    showMessage("Error sending message: " + err.message, "error");
   }
 }
 
