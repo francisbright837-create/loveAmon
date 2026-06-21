@@ -6,8 +6,7 @@
   <title>LoveConnect</title>
   <link rel="stylesheet" href="style.css">
   <style>
-    /* Message notification styles */
-    .app-message {
+    .msg-box {
       position: fixed;
       top: 20px;
       left: 50%;
@@ -19,51 +18,33 @@
       animation: slideDown 0.3s ease;
       max-width: 90%;
       text-align: center;
+      font-size: 14px;
     }
-    .app-message.success {
+    .msg-box.success {
       background: #d4edda;
       color: #155724;
       border: 1px solid #c3e6cb;
     }
-    .app-message.error {
+    .msg-box.error {
       background: #f8d7da;
       color: #721c24;
       border: 1px solid #f5c6cb;
     }
-    .app-message.loading {
+    .msg-box.loading {
       background: #fff3cd;
       color: #856404;
       border: 1px solid #ffeaa7;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .spinner {
-      width: 16px;
-      height: 16px;
-      border: 2px solid #856404;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
     }
     @keyframes slideDown {
       from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
       to { opacity: 1; transform: translateX(-50%) translateY(0); }
     }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    
-    /* Button loading state */
-    .btn-loading {
-      opacity: 0.7;
-      cursor: not-allowed;
-    }
   </style>
 </head>
 <body>
 
-<<header>
+<!-- ✅ FIXED: Removed double < -->
+<header>
   <h1>LoveConnect</h1>
   <p>Find your perfect match 💖</p>
 </header>
@@ -74,27 +55,27 @@
   <div id="auth-section">
     <h2 id="form-title">Sign Up</h2>
 
-    <!-- ✅ CHANGED: Wrapped inputs in a form with ID -->
-    <form id="auth-form">
-      <input type="text" id="name" placeholder="Your Name" required>
-      <input type="email" id="email" placeholder="your@email.com" required>
-      <input type="password" id="password" placeholder="Password (min 6 chars)" required minlength="6">
+    <!-- ✅ FIXED: Removed <form> wrapper, using div instead -->
+    <div id="auth-form">
+      <input type="text" id="name" placeholder="Your Name">
+      <input type="email" id="email" placeholder="your@email.com">
+      <input type="password" id="password" placeholder="Password (min 6 chars)">
 
-      <select id="gender" required>
+      <select id="gender">
         <option value="">Select Gender</option>
         <option value="Male">Male</option>
         <option value="Female">Female</option>
       </select>
 
-      <select id="interest" required>
+      <select id="interest">
         <option value="">Interested In</option>
         <option value="Male">Male</option>
         <option value="Female">Female</option>
       </select>
 
-      <!-- ✅ CHANGED: type="submit" instead of onclick -->
-      <button type="submit" id="submit-btn">Sign Up</button>
-    </form>
+      <!-- ✅ FIXED: type="button" prevents page reload -->
+      <button type="button" id="submit-btn" onclick="submitForm()">Sign Up</button>
+    </div>
 
     <p id="toggle-text">Already have an account? <a href="#" onclick="toggleForm()">Log In</a></p>
   </div>

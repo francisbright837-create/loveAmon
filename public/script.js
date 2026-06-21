@@ -4,14 +4,12 @@ let token = null;
 let currentUser = null;
 let isLogin = false;
 
-// ==================== UI HELPERS ====================
-
 function showMessage(msg, type = 'error') {
   const old = document.querySelector('.msg-box');
   if (old) old.remove();
 
   const div = document.createElement('div');
-  div.className = 'msg-box';
+  div.className = 'msg-box ' + type;
   div.style.cssText = `
     position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
     padding: 15px 25px; border-radius: 10px; z-index: 10000;
@@ -26,7 +24,6 @@ function showMessage(msg, type = 'error') {
   if (type !== 'loading') {
     setTimeout(() => div.remove(), 5000);
   }
-  return div;
 }
 
 function hideMessage() {
@@ -42,18 +39,11 @@ function setLoading(loading) {
   btn.textContent = loading ? 'Please wait...' : (isLogin ? 'Log In' : 'Sign Up');
 }
 
-// ==================== FORM TOGGLE ====================
-
 function toggleForm() {
   isLogin = !isLogin;
   const title = document.getElementById('form-title');
   const btn = document.getElementById('submit-btn');
   const toggleText = document.getElementById('toggle-text');
-
-  if (!title || !btn || !toggleText) {
-    console.error('Form elements not found!');
-    return;
-  }
 
   if (isLogin) {
     title.textContent = 'Log In';
@@ -73,17 +63,11 @@ function toggleForm() {
   hideMessage();
 }
 
-// ==================== MAIN SUBMIT ====================
-
 async function submitForm() {
   console.log('=== SUBMIT FORM CALLED ===');
   
   const email = document.getElementById('email')?.value?.trim();
   const password = document.getElementById('password')?.value;
-
-  console.log('isLogin:', isLogin);
-  console.log('email:', email);
-  console.log('password:', password ? '***' : 'empty');
 
   if (!email || !password) {
     showMessage('❌ Please fill in all fields');
@@ -97,10 +81,6 @@ async function submitForm() {
     const gender = document.getElementById('gender')?.value;
     const interest = document.getElementById('interest')?.value;
 
-    console.log('name:', name);
-    console.log('gender:', gender);
-    console.log('interest:', interest);
-
     if (!name || !gender || !interest) {
       showMessage('❌ Please fill in all fields');
       return;
@@ -109,8 +89,6 @@ async function submitForm() {
     await doRegister(name, email, password, gender, interest);
   }
 }
-
-// ==================== REGISTER ====================
 
 async function doRegister(name, email, password, gender, interest) {
   console.log('=== DO REGISTER ===');
@@ -134,17 +112,13 @@ async function doRegister(name, email, password, gender, interest) {
     hideMessage();
     showMessage('✅ Account created! Please log in.', 'success');
 
-    // Clear form
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('name').value = '';
     document.getElementById('gender').value = '';
     document.getElementById('interest').value = '';
 
-    // Switch to login after 2 seconds
-    setTimeout(() => {
-      toggleForm();
-    }, 2000);
+    setTimeout(() => toggleForm(), 2000);
 
   } catch (err) {
     console.error('Register error:', err);
@@ -154,8 +128,6 @@ async function doRegister(name, email, password, gender, interest) {
     setLoading(false);
   }
 }
-
-// ==================== LOGIN ====================
 
 async function doLogin(email, password) {
   console.log('=== DO LOGIN ===');
@@ -176,7 +148,6 @@ async function doLogin(email, password) {
       throw new Error(data.message || 'Login failed');
     }
 
-    // Save token and user
     token = data.token;
     currentUser = data.user;
     localStorage.setItem('token', token);
@@ -185,11 +156,7 @@ async function doLogin(email, password) {
     hideMessage();
     showMessage('✅ Login successful! Redirecting...', 'success');
 
-    // Redirect to app after 1 second
-    setTimeout(() => {
-      console.log('Redirecting to app...');
-      showApp();
-    }, 1000);
+    setTimeout(() => showApp(), 1000);
 
   } catch (err) {
     console.error('Login error:', err);
@@ -200,17 +167,12 @@ async function doLogin(email, password) {
   }
 }
 
-// ==================== SHOW APP ====================
-
 function showApp() {
   console.log('=== SHOW APP ===');
   
   const authSection = document.getElementById('auth-section');
   const app = document.getElementById('app');
   
-  console.log('authSection:', authSection);
-  console.log('app:', app);
-
   if (!authSection || !app) {
     console.error('App elements not found!');
     return;
@@ -219,7 +181,6 @@ function showApp() {
   authSection.style.display = 'none';
   app.style.display = 'block';
 
-  // Update user name if element exists
   const nameEl = document.getElementById('current-user-name');
   if (nameEl && currentUser) {
     nameEl.textContent = currentUser.name || 'User';
@@ -227,8 +188,6 @@ function showApp() {
 
   console.log('App shown successfully');
 }
-
-// ==================== LOGOUT ====================
 
 function logout() {
   localStorage.removeItem('token');
@@ -246,8 +205,6 @@ function logout() {
   isLogin = false;
 }
 
-// ==================== INIT ====================
-
 window.onload = function() {
   console.log('=== PAGE LOADED ===');
   
@@ -262,14 +219,7 @@ window.onload = function() {
     }
   }
 
-  console.log('token exists:', !!token);
-  console.log('currentUser:', currentUser);
-
   if (token && currentUser) {
     showApp();
-  } else {
-    // Show auth section by default
-    const authSection = document.getElementById('auth-section');
-    if (authSection) authSection.style.display = 'block';
   }
 };
