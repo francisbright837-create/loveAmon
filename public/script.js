@@ -1,9 +1,11 @@
 const API_URL = "https://loveamon.onrender.com/api";
 
 let token = null;
+let currentUser = null;
 let isLogin = false;
 
-// Show message to user
+// ==================== UI HELPERS ====================
+
 function showMessage(msg, type = 'error') {
   const old = document.querySelector('.msg-box');
   if (old) old.remove();
@@ -13,10 +15,10 @@ function showMessage(msg, type = 'error') {
   div.style.cssText = `
     position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
     padding: 15px 25px; border-radius: 10px; z-index: 10000;
-    font-weight: 500; text-align: center; max-width: 90%;
-    ${type === 'success' ? 'background: #d4edda; color: #155724;' : 
-      type === 'loading' ? 'background: #fff3cd; color: #856404;' :
-      'background: #f8d7da; color: #721c24;'}
+    font-weight: 500; text-align: center; max-width: 90%; font-size: 14px;
+    ${type === 'success' ? 'background: #d4edda; color: #155724; border: 1px solid #c3e6cb;' : 
+      type === 'loading' ? 'background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' :
+      'background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'}
   `;
   div.textContent = msg;
   document.body.appendChild(div);
@@ -24,6 +26,7 @@ function showMessage(msg, type = 'error') {
   if (type !== 'loading') {
     setTimeout(() => div.remove(), 5000);
   }
+  return div;
 }
 
 function hideMessage() {
@@ -35,15 +38,22 @@ function setLoading(loading) {
   const btn = document.getElementById('submit-btn');
   if (!btn) return;
   btn.disabled = loading;
+  btn.style.opacity = loading ? '0.7' : '1';
   btn.textContent = loading ? 'Please wait...' : (isLogin ? 'Log In' : 'Sign Up');
 }
 
-// Toggle between login and signup
+// ==================== FORM TOGGLE ====================
+
 function toggleForm() {
   isLogin = !isLogin;
   const title = document.getElementById('form-title');
   const btn = document.getElementById('submit-btn');
   const toggleText = document.getElementById('toggle-text');
+
+  if (!title || !btn || !toggleText) {
+    console.error('Form elements not found!');
+    return;
+  }
 
   if (isLogin) {
     title.textContent = 'Log In';
@@ -63,27 +73,36 @@ function toggleForm() {
   hideMessage();
 }
 
-// Main submit handler
-async function submitForm() {
-  console.log('submitForm called, isLogin:', isLogin);
+// ==================== MAIN SUBMIT ====================
 
-  const email = document.getElementById('email').value.trim();
-  const password = document.getElementById('password').value;
+async function submitForm() {
+  console.log('=== SUBMIT FORM CALLED ===');
+  
+  const email = document.getElementById('email')?.value?.trim();
+  const password = document.getElementById('password')?.value;
+
+  console.log('isLogin:', isLogin);
+  console.log('email:', email);
+  console.log('password:', password ? '***' : 'empty');
 
   if (!email || !password) {
-    showMessage('Please fill in all fields');
+    showMessage('❌ Please fill in all fields');
     return;
   }
 
   if (isLogin) {
     await doLogin(email, password);
   } else {
-    const name = document.getElementById('name').value.trim();
-    const gender = document.getElementById('gender').value;
-    const interest = document.getElementById('interest').value;
+    const name = document.getElementById('name')?.value?.trim();
+    const gender = document.getElementById('gender')?.value;
+    const interest = document.getElementById('interest')?.value;
+
+    console.log('name:', name);
+    console.log('gender:', gender);
+    console.log('interest:', interest);
 
     if (!name || !gender || !interest) {
-      showMessage('Please fill in all fields');
+      showMessage('❌ Please fill in all fields');
       return;
     }
 
@@ -91,7 +110,10 @@ async function submitForm() {
   }
 }
 
+// ==================== REGISTER ====================
+
 async function doRegister(name, email, password, gender, interest) {
+  console.log('=== DO REGISTER ===');
   setLoading(true);
   showMessage('Creating account...', 'loading');
 
@@ -103,7 +125,7 @@ async function doRegister(name, email, password, gender, interest) {
     });
 
     const data = await res.json();
-    console.log('Register response:', data);
+    console.log('Register response:', res.status, data);
 
     if (!res.ok) {
       throw new Error(data.message || 'Registration failed');
@@ -112,14 +134,17 @@ async function doRegister(name, email, password, gender, interest) {
     hideMessage();
     showMessage('✅ Account created! Please log in.', 'success');
 
-    // Clear form and switch to login
+    // Clear form
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('name').value = '';
     document.getElementById('gender').value = '';
     document.getElementById('interest').value = '';
 
-    setTimeout(() => toggleForm(), 2000);
+    // Switch to login after 2 seconds
+    setTimeout(() => {
+      toggleForm();
+    }, 2000);
 
   } catch (err) {
     console.error('Register error:', err);
@@ -130,7 +155,10 @@ async function doRegister(name, email, password, gender, interest) {
   }
 }
 
+// ==================== LOGIN ====================
+
 async function doLogin(email, password) {
+  console.log('=== DO LOGIN ===');
   setLoading(true);
   showMessage('Logging in...', 'loading');
 
@@ -142,20 +170,25 @@ async function doLogin(email, password) {
     });
 
     const data = await res.json();
-    console.log('Login response:', data);
+    console.log('Login response:', res.status, data);
 
     if (!res.ok) {
       throw new Error(data.message || 'Login failed');
     }
 
+    // Save token and user
     token = data.token;
+    currentUser = data.user;
     localStorage.setItem('token', token);
-    hideMessage();
-    showMessage('✅ Login successful!', 'success');
+    localStorage.setItem('user', JSON.stringify(currentUser));
 
+    hideMessage();
+    showMessage('✅ Login successful! Redirecting...', 'success');
+
+    // Redirect to app after 1 second
     setTimeout(() => {
-      document.getElementById('auth-section').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
+      console.log('Redirecting to app...');
+      showApp();
     }, 1000);
 
   } catch (err) {
@@ -167,20 +200,76 @@ async function doLogin(email, password) {
   }
 }
 
-function logout() {
-  localStorage.removeItem('token');
-  token = null;
-  document.getElementById('app').style.display = 'none';
-  document.getElementById('auth-section').style.display = 'block';
-  hideMessage();
+// ==================== SHOW APP ====================
+
+function showApp() {
+  console.log('=== SHOW APP ===');
+  
+  const authSection = document.getElementById('auth-section');
+  const app = document.getElementById('app');
+  
+  console.log('authSection:', authSection);
+  console.log('app:', app);
+
+  if (!authSection || !app) {
+    console.error('App elements not found!');
+    return;
+  }
+
+  authSection.style.display = 'none';
+  app.style.display = 'block';
+
+  // Update user name if element exists
+  const nameEl = document.getElementById('current-user-name');
+  if (nameEl && currentUser) {
+    nameEl.textContent = currentUser.name || 'User';
+  }
+
+  console.log('App shown successfully');
 }
 
-// Check if already logged in
+// ==================== LOGOUT ====================
+
+function logout() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  token = null;
+  currentUser = null;
+  
+  const authSection = document.getElementById('auth-section');
+  const app = document.getElementById('app');
+  
+  if (authSection) authSection.style.display = 'block';
+  if (app) app.style.display = 'none';
+  
+  hideMessage();
+  isLogin = false;
+}
+
+// ==================== INIT ====================
+
 window.onload = function() {
-  console.log('Page loaded');
+  console.log('=== PAGE LOADED ===');
+  
   token = localStorage.getItem('token');
-  if (token) {
-    document.getElementById('auth-section').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
+  const savedUser = localStorage.getItem('user');
+  
+  if (savedUser) {
+    try {
+      currentUser = JSON.parse(savedUser);
+    } catch (e) {
+      console.error('Failed to parse user:', e);
+    }
+  }
+
+  console.log('token exists:', !!token);
+  console.log('currentUser:', currentUser);
+
+  if (token && currentUser) {
+    showApp();
+  } else {
+    // Show auth section by default
+    const authSection = document.getElementById('auth-section');
+    if (authSection) authSection.style.display = 'block';
   }
 };

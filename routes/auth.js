@@ -4,21 +4,20 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 const router = express.Router();
-// ... rest of file (no rate limit stuff)
 
-// Password validation: min 6 chars, at least 1 letter and 1 number
+// Password validation
 function isValidPassword(password) {
   return password.length >= 6 && /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
 }
 
-// Email validation regex
+// Email validation
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// Sanitize input to prevent XSS
+// Sanitize
 function sanitize(str) {
-  return str.replace(/[<>]/g, "");
+  return str ? str.replace(/[<>]/g, "") : "";
 }
 
 // Register
@@ -26,12 +25,12 @@ router.post("/register", async (req, res) => {
   try {
     let { name, email, password, gender, interest } = req.body;
 
-    // Sanitize inputs
+    // Sanitize
     name = sanitize(name?.trim());
     email = email?.trim().toLowerCase();
     interest = sanitize(interest);
 
-    // Validate inputs
+    // Validate
     if (!name || !email || !password || !gender || !interest) {
       return res.status(400).json({ message: "All fields are required" });
     }
@@ -46,11 +45,11 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // Check if user exists
+    // Check existing
     let user = await User.findOne({ email });
     if (user) return res.status(409).json({ message: "User already exists" });
 
-    // Hash password with salt rounds 12
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
     user = new User({
@@ -70,7 +69,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// Login
+// Login - FIXED: Now returns user data too
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -95,7 +94,15 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.json({ token });
+    // ✅ FIXED: Return user data too
+    res.json({ 
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email
+      }
+    });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     res.status(500).json({ message: "Server error" });
