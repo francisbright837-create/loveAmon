@@ -12,10 +12,16 @@ const mongoSanitize = require("express-mongo-sanitize");
 
 const app = express();
 
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "script-src-attr": ["'unsafe-inline'"],
+    },
+  },
+}));
 app.use(mongoSanitize());
 
-// ✅ FIXED: Allow all frontend origins
 const allowedOrigins = [
   "http://localhost:4000",
   "http://localhost:5500",
@@ -43,7 +49,6 @@ app.options('*', cors());
 app.use(express.json({ limit: "5mb" }));
 app.use(express.static("public"));
 
-// ✅ MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
   maxPoolSize: 10,
   serverSelectionTimeoutMS: 5000,
@@ -55,7 +60,6 @@ mongoose.connect(process.env.MONGO_URI, {
     process.exit(1);
   });
 
-// ✅ Auth Middleware
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -71,7 +75,6 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// ✅ ROUTES - Import and mount
 const authRoutes = require("./routes/auth");
 const matchRoutes = require("./routes/match");
 const profileRoutes = require("./routes/profile");
@@ -79,23 +82,21 @@ const messageRoutes = require("./routes/message");
 const adminRoutes = require("./routes/admin");
 const videoRoutes = require("./routes/video");
 
-app.use("/api/auth", authRoutes);        // This creates /api/auth/register
+app.use("/api/auth", authRoutes);
 app.use("/api/profile", authMiddleware, profileRoutes);
 app.use("/api/match", authMiddleware, matchRoutes);
 app.use("/api/messages", authMiddleware, messageRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/videos", authMiddleware, videoRoutes);
 
-// ✅ Health check
 app.get("/health", (req, res) => {
-  res.status(200).json({ 
-    status: "OK", 
+  res.status(200).json({
+    status: "OK",
     timestamp: new Date().toISOString(),
     mongo: mongoose.connection.readyState === 1 ? "connected" : "disconnected"
   });
 });
 
-// ✅ Error handler
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
   if (err.message === "Not allowed by CORS") {
