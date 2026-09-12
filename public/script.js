@@ -3,6 +3,9 @@ const API_URL = "https://loveamon.onrender.com/api";
 let token = null;
 let currentUser = null;
 let isLogin = false;
+let currentChatUserId = null;
+
+// ==================== UI HELPERS ====================
 
 function showMessage(msg, type = 'error') {
   const old = document.querySelector('.msg-box');
@@ -16,7 +19,7 @@ function showMessage(msg, type = 'error') {
     font-weight: 500; text-align: center; max-width: 90%; font-size: 14px;
     ${type === 'success' ? 'background: #d4edda; color: #155724; border: 1px solid #c3e6cb;' : 
       type === 'loading' ? 'background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' :
-      'background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'}
+      'background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'};
   `;
   div.textContent = msg;
   document.body.appendChild(div);
@@ -39,11 +42,18 @@ function setLoading(loading) {
   btn.textContent = loading ? 'Please wait...' : (isLogin ? 'Log In' : 'Sign Up');
 }
 
+// ==================== FORM TOGGLE ====================
+
 function toggleForm() {
   isLogin = !isLogin;
   const title = document.getElementById('form-title');
   const btn = document.getElementById('submit-btn');
   const toggleText = document.getElementById('toggle-text');
+
+  if (!title || !btn || !toggleText) {
+    console.error('Form elements not found!');
+    return;
+  }
 
   if (isLogin) {
     title.textContent = 'Log In';
@@ -63,11 +73,17 @@ function toggleForm() {
   hideMessage();
 }
 
+// ==================== MAIN SUBMIT ====================
+
 async function submitForm() {
   console.log('=== SUBMIT FORM CALLED ===');
   
   const email = document.getElementById('email')?.value?.trim();
   const password = document.getElementById('password')?.value;
+
+  console.log('isLogin:', isLogin);
+  console.log('email:', email);
+  console.log('password:', password ? '***' : 'empty');
 
   if (!email || !password) {
     showMessage('❌ Please fill in all fields');
@@ -81,6 +97,10 @@ async function submitForm() {
     const gender = document.getElementById('gender')?.value;
     const interest = document.getElementById('interest')?.value;
 
+    console.log('name:', name);
+    console.log('gender:', gender);
+    console.log('interest:', interest);
+
     if (!name || !gender || !interest) {
       showMessage('❌ Please fill in all fields');
       return;
@@ -89,6 +109,8 @@ async function submitForm() {
     await doRegister(name, email, password, gender, interest);
   }
 }
+
+// ==================== REGISTER ====================
 
 async function doRegister(name, email, password, gender, interest) {
   console.log('=== DO REGISTER ===');
@@ -112,13 +134,17 @@ async function doRegister(name, email, password, gender, interest) {
     hideMessage();
     showMessage('✅ Account created! Please log in.', 'success');
 
+    // Clear form
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('name').value = '';
     document.getElementById('gender').value = '';
     document.getElementById('interest').value = '';
 
-    setTimeout(() => toggleForm(), 2000);
+    // Switch to login after 2 seconds
+    setTimeout(() => {
+      toggleForm();
+    }, 2000);
 
   } catch (err) {
     console.error('Register error:', err);
@@ -128,6 +154,8 @@ async function doRegister(name, email, password, gender, interest) {
     setLoading(false);
   }
 }
+
+// ==================== LOGIN ====================
 
 async function doLogin(email, password) {
   console.log('=== DO LOGIN ===');
@@ -148,6 +176,7 @@ async function doLogin(email, password) {
       throw new Error(data.message || 'Login failed');
     }
 
+    // Save token and user
     token = data.token;
     currentUser = data.user;
     localStorage.setItem('token', token);
@@ -156,7 +185,11 @@ async function doLogin(email, password) {
     hideMessage();
     showMessage('✅ Login successful! Redirecting...', 'success');
 
-    setTimeout(() => showApp(), 1000);
+    // Redirect to app after 1 second
+    setTimeout(() => {
+      console.log('Redirecting to app...');
+      showApp();
+    }, 1000);
 
   } catch (err) {
     console.error('Login error:', err);
@@ -167,12 +200,17 @@ async function doLogin(email, password) {
   }
 }
 
+// ==================== SHOW APP ====================
+
 function showApp() {
   console.log('=== SHOW APP ===');
   
   const authSection = document.getElementById('auth-section');
   const app = document.getElementById('app');
   
+  console.log('authSection:', authSection);
+  console.log('app:', app);
+
   if (!authSection || !app) {
     console.error('App elements not found!');
     return;
@@ -181,6 +219,12 @@ function showApp() {
   authSection.style.display = 'none';
   app.style.display = 'block';
 
+  // Show profile setup by default
+  document.getElementById('profile-setup').style.display = 'block';
+  document.getElementById('matching-screen').style.display = 'none';
+  document.getElementById('chat-screen').style.display = 'none';
+
+  // Update user name
   const nameEl = document.getElementById('current-user-name');
   if (nameEl && currentUser) {
     nameEl.textContent = currentUser.name || 'User';
@@ -188,6 +232,19 @@ function showApp() {
 
   console.log('App shown successfully');
 }
+
+// ==================== PROFILE ====================
+
+function saveProfile() {
+  console.log('saveProfile called - implement this');
+  showMessage('Profile saved! (implement full feature)', 'success');
+  
+  // Show matching screen
+  document.getElementById('profile-setup').style.display = 'none';
+  document.getElementById('matching-screen').style.display = 'block';
+}
+
+// ==================== LOGOUT ====================
 
 function logout() {
   localStorage.removeItem('token');
@@ -203,7 +260,48 @@ function logout() {
   
   hideMessage();
   isLogin = false;
+  
+  // Reset form
+  document.getElementById('form-title').textContent = 'Sign Up';
+  document.getElementById('submit-btn').textContent = 'Sign Up';
+  document.getElementById('name').style.display = 'block';
+  document.getElementById('gender').style.display = 'block';
+  document.getElementById('interest').style.display = 'block';
 }
+
+// ==================== CHAT (Stub) ====================
+
+function openChat(userId, userName) {
+  currentChatUserId = userId;
+  document.getElementById('matching-screen').style.display = 'none';
+  document.getElementById('chat-screen').style.display = 'block';
+  document.getElementById('chat-with-name').textContent = userName;
+}
+
+function closeChat() {
+  document.getElementById('chat-screen').style.display = 'none';
+  document.getElementById('matching-screen').style.display = 'block';
+  currentChatUserId = null;
+}
+
+function sendMessage() {
+  const input = document.getElementById('message-input');
+  const text = input?.value?.trim();
+  if (!text) return;
+  
+  console.log('Sending message:', text);
+  input.value = '';
+  
+  // Add message to chat (stub)
+  const container = document.getElementById('chat-messages');
+  const msgDiv = document.createElement('div');
+  msgDiv.style.cssText = 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; margin:5px 0 5px auto; max-width:70%; text-align:right;';
+  msgDiv.textContent = text;
+  container.appendChild(msgDiv);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ==================== INIT ====================
 
 window.onload = function() {
   console.log('=== PAGE LOADED ===');
@@ -219,7 +317,14 @@ window.onload = function() {
     }
   }
 
+  console.log('token exists:', !!token);
+  console.log('currentUser:', currentUser);
+
   if (token && currentUser) {
     showApp();
+  } else {
+    // Show auth section by default
+    const authSection = document.getElementById('auth-section');
+    if (authSection) authSection.style.display = 'block';
   }
 };
