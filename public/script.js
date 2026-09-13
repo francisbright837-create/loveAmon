@@ -17,7 +17,7 @@ function showMessage(msg, type = 'error') {
     position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
     padding: 15px 25px; border-radius: 10px; z-index: 10000;
     font-weight: 500; text-align: center; max-width: 90%; font-size: 14px;
-    ${type === 'success' ? 'background: #d4edda; color: #155724; border: 1px solid #c3e6cb;' : 
+    ${type === 'success' ? 'background: #d4edda; color: #155724; border: 1px solid #c3e6cb;' :
       type === 'loading' ? 'background: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' :
       'background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;'};
   `;
@@ -76,14 +76,8 @@ function toggleForm() {
 // ==================== MAIN SUBMIT ====================
 
 async function submitForm() {
-  console.log('=== SUBMIT FORM CALLED ===');
-  
   const email = document.getElementById('email')?.value?.trim();
   const password = document.getElementById('password')?.value;
-
-  console.log('isLogin:', isLogin);
-  console.log('email:', email);
-  console.log('password:', password ? '***' : 'empty');
 
   if (!email || !password) {
     showMessage('❌ Please fill in all fields');
@@ -97,10 +91,6 @@ async function submitForm() {
     const gender = document.getElementById('gender')?.value;
     const interest = document.getElementById('interest')?.value;
 
-    console.log('name:', name);
-    console.log('gender:', gender);
-    console.log('interest:', interest);
-
     if (!name || !gender || !interest) {
       showMessage('❌ Please fill in all fields');
       return;
@@ -113,9 +103,12 @@ async function submitForm() {
 // ==================== REGISTER ====================
 
 async function doRegister(name, email, password, gender, interest) {
-  console.log('=== DO REGISTER ===');
   setLoading(true);
   showMessage('Creating account...', 'loading');
+
+  const slowTimer = setTimeout(() => {
+    showMessage('⏳ Server is waking up, this can take up to a minute...', 'loading');
+  }, 8000);
 
   try {
     const res = await fetch(API_URL + '/auth/register', {
@@ -124,8 +117,8 @@ async function doRegister(name, email, password, gender, interest) {
       body: JSON.stringify({ name, email, password, gender, interest })
     });
 
+    clearTimeout(slowTimer);
     const data = await res.json();
-    console.log('Register response:', res.status, data);
 
     if (!res.ok) {
       throw new Error(data.message || 'Registration failed');
@@ -134,20 +127,18 @@ async function doRegister(name, email, password, gender, interest) {
     hideMessage();
     showMessage('✅ Account created! Please log in.', 'success');
 
-    // Clear form
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('name').value = '';
     document.getElementById('gender').value = '';
     document.getElementById('interest').value = '';
 
-    // Switch to login after 2 seconds
     setTimeout(() => {
       toggleForm();
     }, 2000);
 
   } catch (err) {
-    console.error('Register error:', err);
+    clearTimeout(slowTimer);
     hideMessage();
     showMessage('❌ ' + err.message);
   } finally {
@@ -158,9 +149,12 @@ async function doRegister(name, email, password, gender, interest) {
 // ==================== LOGIN ====================
 
 async function doLogin(email, password) {
-  console.log('=== DO LOGIN ===');
   setLoading(true);
   showMessage('Logging in...', 'loading');
+
+  const slowTimer = setTimeout(() => {
+    showMessage('⏳ Server is waking up, this can take up to a minute...', 'loading');
+  }, 8000);
 
   try {
     const res = await fetch(API_URL + '/auth/login', {
@@ -169,14 +163,13 @@ async function doLogin(email, password) {
       body: JSON.stringify({ email, password })
     });
 
+    clearTimeout(slowTimer);
     const data = await res.json();
-    console.log('Login response:', res.status, data);
 
     if (!res.ok) {
       throw new Error(data.message || 'Login failed');
     }
 
-    // Save token and user
     token = data.token;
     currentUser = data.user;
     localStorage.setItem('token', token);
@@ -185,14 +178,12 @@ async function doLogin(email, password) {
     hideMessage();
     showMessage('✅ Login successful! Redirecting...', 'success');
 
-    // Redirect to app after 1 second
     setTimeout(() => {
-      console.log('Redirecting to app...');
       showApp();
     }, 1000);
 
   } catch (err) {
-    console.error('Login error:', err);
+    clearTimeout(slowTimer);
     hideMessage();
     showMessage('❌ ' + err.message);
   } finally {
@@ -203,13 +194,8 @@ async function doLogin(email, password) {
 // ==================== SHOW APP ====================
 
 function showApp() {
-  console.log('=== SHOW APP ===');
-  
   const authSection = document.getElementById('auth-section');
   const app = document.getElementById('app');
-  
-  console.log('authSection:', authSection);
-  console.log('app:', app);
 
   if (!authSection || !app) {
     console.error('App elements not found!');
@@ -219,29 +205,150 @@ function showApp() {
   authSection.style.display = 'none';
   app.style.display = 'block';
 
-  // Show profile setup by default
-  document.getElementById('profile-setup').style.display = 'block';
-  document.getElementById('matching-screen').style.display = 'none';
-  document.getElementById('chat-screen').style.display = 'none';
-
-  // Update user name
   const nameEl = document.getElementById('current-user-name');
   if (nameEl && currentUser) {
     nameEl.textContent = currentUser.name || 'User';
   }
 
-  console.log('App shown successfully');
+  // ✅ FIXED: Skip profile setup if already completed
+  const hasProfile = currentUser && currentUser.profilePicture;
+
+  document.getElementById('chat-screen').style.display = 'none';
+
+  if (hasProfile) {
+    document.getElementById('profile-setup').style.display = 'none';
+    document.getElementById('matching-screen').style.display = 'block';
+    loadProfiles();
+  } else {
+    document.getElementById('profile-setup').style.display = 'block';
+    document.getElementById('matching-screen').style.display = 'none';
+  }
 }
 
 // ==================== PROFILE ====================
 
-function saveProfile() {
-  console.log('saveProfile called - implement this');
-  showMessage('Profile saved! (implement full feature)', 'success');
-  
-  // Show matching screen
-  document.getElementById('profile-setup').style.display = 'none';
-  document.getElementById('matching-screen').style.display = 'block';
+async function saveProfile() {
+  const photoInput = document.getElementById('photo-input');
+  const bio = document.getElementById('bio')?.value?.trim() || '';
+  const file = photoInput?.files?.[0];
+
+  showMessage('Saving profile...', 'loading');
+
+  try {
+    const formData = new FormData();
+    if (bio) formData.append('bio', bio);
+    if (file) formData.append('photo', file);
+
+    const res = await fetch(API_URL + '/profile/setup', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      },
+      body: formData
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || 'Failed to save profile');
+    }
+
+    // Update local user data with saved profile
+    currentUser = { ...currentUser, ...data };
+    localStorage.setItem('user', JSON.stringify(currentUser));
+
+    hideMessage();
+    showMessage('✅ Profile saved!', 'success');
+
+    document.getElementById('profile-setup').style.display = 'none';
+    document.getElementById('matching-screen').style.display = 'block';
+    loadProfiles();
+
+  } catch (err) {
+    hideMessage();
+    showMessage('❌ ' + err.message);
+  }
+}
+
+// Preview selected photo before upload
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'photo-input') {
+    const file = e.target.files[0];
+    if (!file) return;
+    const preview = document.getElementById('photo-preview');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      preview.src = ev.target.result;
+      preview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+// ==================== MATCHING / PROFILES ====================
+
+async function loadProfiles() {
+  const container = document.getElementById('profiles');
+  if (!container) return;
+  container.innerHTML = '<p>Loading profiles...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/match/profiles', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || 'Failed to load profiles');
+    }
+
+    if (!data.profiles || data.profiles.length === 0) {
+      container.innerHTML = '<p>No profiles found right now. Check back later! 💕</p>';
+      return;
+    }
+
+    container.innerHTML = '';
+    data.profiles.forEach(profile => {
+      const card = document.createElement('div');
+      card.className = 'profile-card';
+      card.innerHTML = `
+        ${profile.profilePicture ? `<img src="${profile.profilePicture}" alt="${profile.name}">` : ''}
+        <h3>${profile.name}</h3>
+        <p>${profile.bio || 'No bio yet.'}</p>
+        <button onclick="likeUser('${profile._id}', '${profile.name}')">💖 Like</button>
+      `;
+      container.appendChild(card);
+    });
+
+  } catch (err) {
+    container.innerHTML = '<p>Could not load profiles. Try again later.</p>';
+    console.error('Load profiles error:', err);
+  }
+}
+
+async function likeUser(targetId, targetName) {
+  try {
+    const res = await fetch(API_URL + '/match/like/' + targetId, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || 'Failed to like user');
+    }
+
+    if (data.match) {
+      showMessage("🎉 It's a match with " + targetName + "!", 'success');
+    } else {
+      showMessage('💕 Liked ' + targetName + '!', 'success');
+    }
+
+    loadProfiles();
+
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
 }
 
 // ==================== LOGOUT ====================
@@ -251,17 +358,16 @@ function logout() {
   localStorage.removeItem('user');
   token = null;
   currentUser = null;
-  
+
   const authSection = document.getElementById('auth-section');
   const app = document.getElementById('app');
-  
+
   if (authSection) authSection.style.display = 'block';
   if (app) app.style.display = 'none';
-  
+
   hideMessage();
   isLogin = false;
-  
-  // Reset form
+
   document.getElementById('form-title').textContent = 'Sign Up';
   document.getElementById('submit-btn').textContent = 'Sign Up';
   document.getElementById('name').style.display = 'block';
@@ -288,11 +394,9 @@ function sendMessage() {
   const input = document.getElementById('message-input');
   const text = input?.value?.trim();
   if (!text) return;
-  
-  console.log('Sending message:', text);
+
   input.value = '';
-  
-  // Add message to chat (stub)
+
   const container = document.getElementById('chat-messages');
   const msgDiv = document.createElement('div');
   msgDiv.style.cssText = 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; margin:5px 0 5px auto; max-width:70%; text-align:right;';
@@ -304,11 +408,9 @@ function sendMessage() {
 // ==================== INIT ====================
 
 window.onload = function() {
-  console.log('=== PAGE LOADED ===');
-  
   token = localStorage.getItem('token');
   const savedUser = localStorage.getItem('user');
-  
+
   if (savedUser) {
     try {
       currentUser = JSON.parse(savedUser);
@@ -317,13 +419,9 @@ window.onload = function() {
     }
   }
 
-  console.log('token exists:', !!token);
-  console.log('currentUser:', currentUser);
-
   if (token && currentUser) {
     showApp();
   } else {
-    // Show auth section by default
     const authSection = document.getElementById('auth-section');
     if (authSection) authSection.style.display = 'block';
   }
