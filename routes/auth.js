@@ -5,17 +5,14 @@ const User = require("../models/User");
 
 const router = express.Router();
 
-// Password validation
 function isValidPassword(password) {
   return password.length >= 6 && /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
 }
 
-// Email validation
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// Sanitize
 function sanitize(str) {
   return str ? str.replace(/[<>]/g, "") : "";
 }
@@ -25,12 +22,10 @@ router.post("/register", async (req, res) => {
   try {
     let { name, email, password, gender, interest } = req.body;
 
-    // Sanitize
     name = sanitize(name?.trim());
     email = email?.trim().toLowerCase();
     interest = sanitize(interest);
 
-    // Validate
     if (!name || !email || !password || !gender || !interest) {
       return res.status(400).json({ message: "All fields are required" });
     }
@@ -40,16 +35,14 @@ router.post("/register", async (req, res) => {
     }
 
     if (!isValidPassword(password)) {
-      return res.status(400).json({ 
-        message: "Password must be at least 6 characters with letters and numbers" 
+      return res.status(400).json({
+        message: "Password must be at least 6 characters with letters and numbers"
       });
     }
 
-    // Check existing
     let user = await User.findOne({ email });
     if (user) return res.status(409).json({ message: "User already exists" });
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
     user = new User({
@@ -69,7 +62,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// Login - FIXED: Now returns user data too
+// Login — ✅ FIXED: now returns bio + profilePicture so frontend knows if setup is done
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -89,18 +82,21 @@ router.post("/login", async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user._id }, 
-      process.env.JWT_SECRET, 
+      { id: user._id },
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    // ✅ FIXED: Return user data too
-    res.json({ 
+    res.json({
       token,
       user: {
         id: user._id,
         name: user.name,
-        email: user.email
+        email: user.email,
+        gender: user.gender,
+        interest: user.interest,
+        bio: user.bio || "",
+        profilePicture: user.profilePicture || ""
       }
     });
   } catch (err) {

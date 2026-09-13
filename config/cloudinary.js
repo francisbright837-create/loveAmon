@@ -8,6 +8,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
+// Video storage (existing)
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -18,9 +19,25 @@ const storage = new CloudinaryStorage({
   }
 });
 
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
 });
 
-module.exports = { cloudinary, upload };
+// ✅ NEW: Profile photo storage
+const imageStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'loveconnect/profiles',
+    resource_type: 'image',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 800, height: 800, crop: 'limit' }]
+  }
+});
+
+const uploadImage = multer({
+  storage: imageStorage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB max
+});
+
+module.exports = { cloudinary, upload, uploadImage };

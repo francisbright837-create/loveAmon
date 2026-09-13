@@ -1,5 +1,6 @@
 const express = require("express");
 const User = require("../models/User");
+const { uploadImage } = require("../config/cloudinary");
 
 const router = express.Router();
 
@@ -18,7 +19,33 @@ router.get("/me", async (req, res) => {
   }
 });
 
-// Update profile
+// ✅ NEW: Complete profile setup (photo + bio) in one call
+router.post("/setup", uploadImage.single("photo"), async (req, res) => {
+  try {
+    const { bio } = req.body;
+
+    const update = {};
+    if (bio !== undefined) update.bio = bio.trim().slice(0, 500);
+    if (req.file) update.profilePicture = req.file.path;
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    const updated = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: update },
+      { new: true }
+    ).select("-password -likes -matches -__v");
+
+    res.json(updated);
+  } catch (err) {
+    console.error("Profile setup error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Update profile (text-only fields, still available)
 router.put("/", async (req, res) => {
   try {
     const { profilePicture, bio } = req.body;
