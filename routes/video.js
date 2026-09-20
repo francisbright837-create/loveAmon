@@ -9,11 +9,11 @@ const router = express.Router();
 router.post("/upload", upload.single("video"), async (req, res) => {
   try {
     const { caption } = req.body;
-    
+
     const video = new Video({
       user: req.userId,
       url: req.file.path,
-      thumbnail: req.file.path.replace('.mp4', '.jpg'), // Cloudinary auto-generates
+      thumbnail: req.file.path.replace('.mp4', '.jpg'),
       caption: caption || ""
     });
 
@@ -53,6 +53,19 @@ router.get("/my-videos", async (req, res) => {
   }
 });
 
+// ✅ NEW: Get videos for a specific user (to view on their profile)
+router.get("/user/:userId", async (req, res) => {
+  try {
+    const videos = await Video.find({ user: req.params.userId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json(videos);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // Like/unlike video
 router.post("/like/:videoId", async (req, res) => {
   try {
@@ -60,7 +73,7 @@ router.post("/like/:videoId", async (req, res) => {
     if (!video) return res.status(404).json({ message: "Video not found" });
 
     const alreadyLiked = video.likes.includes(req.userId);
-    
+
     if (alreadyLiked) {
       video.likes.pull(req.userId);
     } else {
@@ -80,7 +93,6 @@ router.post("/view/:videoId", async (req, res) => {
     const video = await Video.findById(req.params.videoId);
     if (!video) return res.status(404).json({ message: "Video not found" });
 
-    // Only count view if user hasn't viewed before
     if (!video.viewedBy.includes(req.userId)) {
       video.views += 1;
       video.viewedBy.push(req.userId);
