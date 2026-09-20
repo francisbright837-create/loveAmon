@@ -210,7 +210,6 @@ function showApp() {
     nameEl.textContent = currentUser.name || 'User';
   }
 
-  // ✅ FIXED: Skip profile setup if already completed
   const hasProfile = currentUser && currentUser.profilePicture;
 
   document.getElementById('chat-screen').style.display = 'none';
@@ -253,7 +252,6 @@ async function saveProfile() {
       throw new Error(data.message || 'Failed to save profile');
     }
 
-    // Update local user data with saved profile
     currentUser = { ...currentUser, ...data };
     localStorage.setItem('user', JSON.stringify(currentUser));
 
@@ -270,7 +268,6 @@ async function saveProfile() {
   }
 }
 
-// Preview selected photo before upload
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'photo-input') {
     const file = e.target.files[0];
@@ -298,9 +295,7 @@ async function loadProfiles() {
     });
     const data = await res.json();
 
-    if (!res.ok) {
-      throw new Error(data.message || 'Failed to load profiles');
-    }
+    if (!res.ok) throw new Error(data.message || 'Failed to load profiles');
 
     if (!data.profiles || data.profiles.length === 0) {
       container.innerHTML = '<p>No profiles found right now. Check back later! 💕</p>';
@@ -316,6 +311,9 @@ async function loadProfiles() {
         <h3>${profile.name}</h3>
         <p>${profile.bio || 'No bio yet.'}</p>
         <button onclick="likeUser('${profile._id}', '${profile.name}')">💖 Like</button>
+        <button onclick="openChat('${profile._id}', '${profile.name}')" style="background:#4d7cff;">💬 Message</button>
+        <button onclick="viewVideos('${profile._id}', '${profile.name}')" style="background:#555;">🎬 View Videos</button>
+        <div id="videos-${profile._id}" style="margin-top:10px;"></div>
       `;
       container.appendChild(card);
     });
@@ -334,9 +332,7 @@ async function likeUser(targetId, targetName) {
     });
     const data = await res.json();
 
-    if (!res.ok) {
-      throw new Error(data.message || 'Failed to like user');
-    }
+    if (!res.ok) throw new Error(data.message || 'Failed to like user');
 
     if (data.match) {
       showMessage("🎉 It's a match with " + targetName + "!", 'success');
@@ -345,6 +341,129 @@ async function likeUser(targetId, targetName) {
     }
 
     loadProfiles();
+
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
+async function viewVideos(userId, userName) {
+  const container = document.getElementById('videos-' + userId);
+  if (!container) return;
+
+  if (container.dataset.loaded === 'true') {
+    container.style.display = container.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+
+  container.innerHTML = '<p>Loading videos...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/videos/user/' + userId, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const videos = await res.json();
+
+    if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
+
+    if (!videos.length) {
+      container.innerHTML = '<p>' + userName + ' has no videos yet.</p>';
+    } else {
+      container.innerHTML = videos.map(v => `
+        <video src="${v.url}" controls style="width:100%; border-radius:8px; margin-top:8px;"></video>
+        ${v.caption ? `<p style="font-size:13px; color:#555;">${v.caption}</p>` : ''}
+      `).join('');
+    }
+    container.dataset.loaded = 'true';
+
+  } catch (err) {
+    container.innerHTML = '<p>Could not load videos.</p>';
+  }
+}
+
+// ==================== CHAT ====================
+
+async function openChat(userId, userName) {
+  currentChatUserId = userId;
+  document.getElementById('matching-screen').style.display = 'none';
+  document.getElementById('chat-screen').style.display = 'block';
+  document.getElementById('chat-with-name').textContent = userName;
+  await loadMessages(userId);
+}
+
+function closeChat() {
+  document.getElementById('chat-screen').style.display = 'none';
+  document.getElementById('matching-screen').style.display = 'block';
+  currentChatUserId = null;
+}
+
+async function loadMessages(userId) {
+  const container = document.getElementById('chat-messages');
+  container.innerHTML = '<p style="text-align:center; color:#888;">Loading messages...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/messages/' + userId, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const messages = await res.json();
+
+    if (!res.ok) throw new Error(messages.message || 'Failed to load messages');
+
+    renderMessages(messages);
+
+    fetch(API_URL + '/messages/read/' + userId, {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+
+  } catch (err) {
+    container.innerHTML = '<p style="text-align:center; color:#888;">Could not load messages.</p>';
+  }
+}
+
+function renderMessages(messages) {
+  const container = document.getElementById('chat-messages');
+  container.innerHTML = '';
+
+  if (!messages.length) {
+    container.innerHTML = '<p style="text-align:center; color:#888;">Say hello! 👋</p>';
+    return;
+  }
+
+  messages.forEach(msg => {
+    const isMine = msg.sender._id === currentUser.id || msg.sender === currentUser.id;
+    const msgDiv = document.createElement('div');
+    msgDiv.style.cssText = isMine
+      ? 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; margin:5px 0 5px auto; max-width:70%; text-align:right;'
+      : 'background:#eee; color:#333; padding:10px; border-radius:10px; margin:5px auto 5px 0; max-width:70%; text-align:left;';
+    msgDiv.textContent = msg.text;
+    container.appendChild(msgDiv);
+  });
+
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('message-input');
+  const text = input?.value?.trim();
+  if (!text || !currentChatUserId) return;
+
+  input.value = '';
+
+  try {
+    const res = await fetch(API_URL + '/messages/' + currentChatUserId, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.message || 'Failed to send message');
+
+    await loadMessages(currentChatUserId);
 
   } catch (err) {
     showMessage('❌ ' + err.message);
@@ -373,36 +492,6 @@ function logout() {
   document.getElementById('name').style.display = 'block';
   document.getElementById('gender').style.display = 'block';
   document.getElementById('interest').style.display = 'block';
-}
-
-// ==================== CHAT (Stub) ====================
-
-function openChat(userId, userName) {
-  currentChatUserId = userId;
-  document.getElementById('matching-screen').style.display = 'none';
-  document.getElementById('chat-screen').style.display = 'block';
-  document.getElementById('chat-with-name').textContent = userName;
-}
-
-function closeChat() {
-  document.getElementById('chat-screen').style.display = 'none';
-  document.getElementById('matching-screen').style.display = 'block';
-  currentChatUserId = null;
-}
-
-function sendMessage() {
-  const input = document.getElementById('message-input');
-  const text = input?.value?.trim();
-  if (!text) return;
-
-  input.value = '';
-
-  const container = document.getElementById('chat-messages');
-  const msgDiv = document.createElement('div');
-  msgDiv.style.cssText = 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; margin:5px 0 5px auto; max-width:70%; text-align:right;';
-  msgDiv.textContent = text;
-  container.appendChild(msgDiv);
-  container.scrollTop = container.scrollHeight;
 }
 
 // ==================== INIT ====================
