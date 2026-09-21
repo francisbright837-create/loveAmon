@@ -4,6 +4,7 @@ let token = null;
 let currentUser = null;
 let isLogin = false;
 let currentChatUserId = null;
+let notifInterval = null;
 
 // ==================== UI HELPERS ====================
 
@@ -213,18 +214,21 @@ function showApp() {
   const hasProfile = currentUser && currentUser.profilePicture;
 
   document.getElementById('chat-screen').style.display = 'none';
+  document.getElementById('upload-video-screen').style.display = 'none';
+  document.getElementById('edit-profile-screen').style.display = 'none';
 
   if (hasProfile) {
     document.getElementById('profile-setup').style.display = 'none';
     document.getElementById('matching-screen').style.display = 'block';
     loadProfiles();
+    startNotifPolling();
   } else {
     document.getElementById('profile-setup').style.display = 'block';
     document.getElementById('matching-screen').style.display = 'none';
   }
 }
 
-// ==================== PROFILE ====================
+// ==================== PROFILE SETUP ====================
 
 async function saveProfile() {
   const photoInput = document.getElementById('photo-input');
@@ -261,6 +265,7 @@ async function saveProfile() {
     document.getElementById('profile-setup').style.display = 'none';
     document.getElementById('matching-screen').style.display = 'block';
     loadProfiles();
+    startNotifPolling();
 
   } catch (err) {
     hideMessage();
@@ -268,11 +273,13 @@ async function saveProfile() {
   }
 }
 
+// Handles photo preview for both the initial setup input and the edit-profile input
 document.addEventListener('change', (e) => {
-  if (e.target && e.target.id === 'photo-input') {
+  if (e.target && (e.target.id === 'photo-input' || e.target.id === 'edit-photo-input')) {
     const file = e.target.files[0];
     if (!file) return;
-    const preview = document.getElementById('photo-preview');
+    const previewId = e.target.id === 'photo-input' ? 'photo-preview' : 'edit-photo-preview';
+    const preview = document.getElementById(previewId);
     const reader = new FileReader();
     reader.onload = (ev) => {
       preview.src = ev.target.result;
@@ -281,6 +288,113 @@ document.addEventListener('change', (e) => {
     reader.readAsDataURL(file);
   }
 });
+
+// ==================== EDIT PROFILE PICTURE (after setup) ====================
+
+function openEditProfile() {
+  document.getElementById('matching-screen').style.display = 'none';
+  document.getElementById('edit-profile-screen').style.display = 'block';
+}
+
+function closeEditProfile() {
+  document.getElementById('edit-profile-screen').style.display = 'none';
+  document.getElementById('matching-screen').style.display = 'block';
+}
+
+async function updateProfilePicture() {
+  const fileInput = document.getElementById('edit-photo-input');
+  const file = fileInput?.files?.[0];
+
+  if (!file) {
+    showMessage('❌ Please choose a photo first');
+    return;
+  }
+
+  showMessage('Saving photo...', 'loading');
+
+  try {
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    const res = await fetch(API_URL + '/profile/setup', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token },
+      body: formData
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.message || 'Failed to update photo');
+
+    currentUser = { ...currentUser, ...data };
+    localStorage.setItem('user', JSON.stringify(currentUser));
+
+    hideMessage();
+    showMessage('✅ Profile picture updated!', 'success');
+
+    setTimeout(() => {
+      closeEditProfile();
+      loadProfiles();
+    }, 1000);
+
+  } catch (err) {
+    hideMessage();
+    showMessage('❌ ' + err.message);
+  }
+}
+
+// ==================== VIDEO UPLOAD ====================
+
+function openUploadVideo() {
+  document.getElementById('matching-screen').style.display = 'none';
+  document.getElementById('upload-video-screen').style.display = 'block';
+}
+
+function closeUploadVideo() {
+  document.getElementById('upload-video-screen').style.display = 'none';
+  document.getElementById('matching-screen').style.display = 'block';
+}
+
+async function uploadVideo() {
+  const fileInput = document.getElementById('video-input');
+  const caption = document.getElementById('video-caption')?.value?.trim() || '';
+  const file = fileInput?.files?.[0];
+  const statusDiv = document.getElementById('upload-status');
+
+  if (!file) {
+    statusDiv.textContent = '❌ Please choose a video file first';
+    return;
+  }
+
+  statusDiv.textContent = 'Uploading... this may take a moment ⏳';
+
+  try {
+    const formData = new FormData();
+    formData.append('video', file);
+    if (caption) formData.append('caption', caption);
+
+    const res = await fetch(API_URL + '/videos/upload', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token },
+      body: formData
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.message || 'Upload failed');
+
+    statusDiv.textContent = '✅ Video uploaded successfully!';
+    document.getElementById('video-input').value = '';
+    document.getElementById('video-caption').value = '';
+
+    setTimeout(() => {
+      closeUploadVideo();
+    }, 1500);
+
+  } catch (err) {
+    statusDiv.textContent = '❌ ' + err.message;
+  }
+}
 
 // ==================== MATCHING / PROFILES ====================
 
@@ -389,6 +503,7 @@ async function openChat(userId, userName) {
   document.getElementById('chat-screen').style.display = 'block';
   document.getElementById('chat-with-name').textContent = userName;
   await loadMessages(userId);
+  checkUnreadMessages();
 }
 
 function closeChat() {
@@ -431,7 +546,8 @@ function renderMessages(messages) {
   }
 
   messages.forEach(msg => {
-    const isMine = msg.sender._id === currentUser.id || msg.sender === currentUser.id;
+    const senderId = msg.sender._id || msg.sender;
+    const isMine = senderId === currentUser.id;
     const msgDiv = document.createElement('div');
     msgDiv.style.cssText = isMine
       ? 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; margin:5px 0 5px auto; max-width:70%; text-align:right;'
@@ -470,6 +586,40 @@ async function sendMessage() {
   }
 }
 
+// ==================== NOTIFICATIONS ====================
+
+function startNotifPolling() {
+  checkUnreadMessages();
+  if (notifInterval) clearInterval(notifInterval);
+  notifInterval = setInterval(checkUnreadMessages, 10000);
+}
+
+function stopNotifPolling() {
+  if (notifInterval) clearInterval(notifInterval);
+  notifInterval = null;
+}
+
+async function checkUnreadMessages() {
+  if (!token) return;
+  try {
+    const res = await fetch(API_URL + '/messages/unread/count', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    const badge = document.getElementById('notif-badge');
+    if (!badge) return;
+
+    if (data.count > 0) {
+      badge.textContent = data.count;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (err) {
+    console.error('Notif check error:', err);
+  }
+}
+
 // ==================== LOGOUT ====================
 
 function logout() {
@@ -477,6 +627,8 @@ function logout() {
   localStorage.removeItem('user');
   token = null;
   currentUser = null;
+
+  stopNotifPolling();
 
   const authSection = document.getElementById('auth-section');
   const app = document.getElementById('app');

@@ -4,6 +4,19 @@ const User = require("../models/User");
 
 const router = express.Router();
 
+// ✅ Get unread message count (for notifications) — MUST come before /:userId
+router.get("/unread/count", async (req, res) => {
+  try {
+    const count = await Message.countDocuments({
+      receiver: req.userId,
+      read: false
+    });
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // Get chat history with a specific user
 router.get("/:userId", async (req, res) => {
   try {
@@ -45,7 +58,6 @@ router.post("/:userId", async (req, res) => {
 
     await message.save();
 
-    // Populate sender info before sending back
     await message.populate("sender", "name profilePicture");
 
     res.status(201).json(message);
