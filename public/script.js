@@ -5,7 +5,7 @@ let currentUser = null;
 let isLogin = false;
 let currentChatUserId = null;
 let notifInterval = null;
-
+let lastUnreadCount = 0;
 // ==================== UI HELPERS ====================
 
 function showMessage(msg, type = 'error') {
@@ -607,19 +607,24 @@ async function checkUnreadMessages() {
     });
     const data = await res.json();
     const badge = document.getElementById('notif-badge');
-    if (!badge) return;
 
     if (data.count > 0) {
-      badge.textContent = data.count;
-      badge.style.display = 'inline-block';
+      if (badge) {
+        badge.textContent = data.count;
+        badge.style.display = 'inline-block';
+      }
+      if (data.count > lastUnreadCount) {
+        showMessage('💌 You have a new message!', 'success');
+      }
     } else {
-      badge.style.display = 'none';
+      if (badge) badge.style.display = 'none';
     }
+
+    lastUnreadCount = data.count;
   } catch (err) {
     console.error('Notif check error:', err);
   }
 }
-
 // ==================== LOGOUT ====================
 
 function logout() {
