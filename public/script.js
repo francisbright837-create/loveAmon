@@ -483,8 +483,8 @@ async function viewVideos(userId, userName) {
     if (!videos.length) {
       container.innerHTML = '<p>' + userName + ' has no videos yet.</p>';
     } else {
-      container.innerHTML = videos.map(v => `
-        <video src="${v.url}" controls style="width:100%; border-radius:8px; margin-top:8px;"></video>
+     container.innerHTML = videos.map(v => `
+        <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px; margin-top:8px;"></video>
         ${v.caption ? `<p style="font-size:13px; color:#555;">${v.caption}</p>` : ''}
       `).join('');
     }
