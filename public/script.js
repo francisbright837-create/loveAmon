@@ -6,6 +6,7 @@ let isLogin = false;
 let currentChatUserId = null;
 let notifInterval = null;
 let lastUnreadCount = 0;
+
 // ==================== UI HELPERS ====================
 
 function showMessage(msg, type = 'error') {
@@ -216,6 +217,7 @@ function showApp() {
   document.getElementById('chat-screen').style.display = 'none';
   document.getElementById('upload-video-screen').style.display = 'none';
   document.getElementById('edit-profile-screen').style.display = 'none';
+  document.getElementById('my-profile-screen').style.display = 'none';
 
   if (hasProfile) {
     document.getElementById('profile-setup').style.display = 'none';
@@ -340,6 +342,72 @@ async function updateProfilePicture() {
   } catch (err) {
     hideMessage();
     showMessage('❌ ' + err.message);
+  }
+}
+
+// ==================== MY PROFILE ====================
+
+function openMyProfile() {
+  document.getElementById('matching-screen').style.display = 'none';
+  document.getElementById('my-profile-screen').style.display = 'block';
+  loadMyProfile();
+  loadMyVideos();
+}
+
+function closeMyProfile() {
+  document.getElementById('my-profile-screen').style.display = 'none';
+  document.getElementById('matching-screen').style.display = 'block';
+}
+
+async function loadMyProfile() {
+  const container = document.getElementById('my-profile-details');
+  container.innerHTML = '<p>Loading...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/profile/me', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const user = await res.json();
+
+    if (!res.ok) throw new Error(user.message || 'Failed to load profile');
+
+    container.innerHTML = `
+      ${user.profilePicture ? `<img src="${user.profilePicture}" style="width:180px; height:180px; object-fit:cover; border-radius:50%; margin-bottom:15px;">` : '<p>No profile picture yet.</p>'}
+      <h3>${user.name}</h3>
+      <p>${user.bio || 'No bio yet.'}</p>
+    `;
+  } catch (err) {
+    container.innerHTML = '<p>Could not load your profile.</p>';
+  }
+}
+
+async function loadMyVideos() {
+  const container = document.getElementById('my-videos-list');
+  container.innerHTML = '<p>Loading your videos...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/videos/my-videos', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const videos = await res.json();
+
+    if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
+
+    if (!videos.length) {
+      container.innerHTML = '<p>You haven\'t uploaded any videos yet.</p>';
+      return;
+    }
+
+    container.innerHTML = videos.map(v => `
+      <div style="margin-bottom:20px; text-align:left;">
+        <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;"></video>
+        ${v.caption ? `<p style="font-size:14px; color:#555; margin-top:5px;">${v.caption}</p>` : ''}
+        <p style="font-size:13px; color:#888;">👁️ ${v.views || 0} views</p>
+      </div>
+    `).join('');
+
+  } catch (err) {
+    container.innerHTML = '<p>Could not load your videos.</p>';
   }
 }
 
@@ -483,7 +551,7 @@ async function viewVideos(userId, userName) {
     if (!videos.length) {
       container.innerHTML = '<p>' + userName + ' has no videos yet.</p>';
     } else {
-     container.innerHTML = videos.map(v => `
+      container.innerHTML = videos.map(v => `
         <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px; margin-top:8px;"></video>
         ${v.caption ? `<p style="font-size:13px; color:#555;">${v.caption}</p>` : ''}
       `).join('');
@@ -625,6 +693,7 @@ async function checkUnreadMessages() {
     console.error('Notif check error:', err);
   }
 }
+
 // ==================== LOGOUT ====================
 
 function logout() {

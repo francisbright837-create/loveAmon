@@ -106,7 +106,8 @@
       </h2>
       <button onclick="logout()" style="margin-bottom:10px;">Log out</button>
       <button onclick="openUploadVideo()" style="margin-bottom:10px; background:#4d7cff;">🎬 Upload Video</button>
-      <button onclick="openEditProfile()" style="margin-bottom:20px; background:#28a745;">📷 Edit Profile Picture</button>
+      <button onclick="openEditProfile()" style="margin-bottom:10px; background:#28a745;">📷 Edit Profile Picture</button>
+      <button onclick="openMyProfile()" style="margin-bottom:20px; background:#8a3ffc;">👤 My Profile</button>
 
       <h3>Find someone special</h3>
       <div id="profiles"></div>
@@ -131,6 +132,15 @@
         <img id="edit-photo-preview" style="max-width:180px; border-radius:12px; display:none;">
       </div>
       <button onclick="updateProfilePicture()" style="margin-top:15px;">Save Photo</button>
+    </div>
+
+    <!-- My Profile Screen -->
+    <div id="my-profile-screen" style="display:none; max-width:500px; margin:0 auto;">
+      <button onclick="closeMyProfile()" style="margin-bottom:15px;">← Back</button>
+      <h2>My Profile 👤</h2>
+      <div id="my-profile-details" style="text-align:center;"></div>
+      <h3 style="margin-top:30px;">My Videos 🎬</h3>
+      <div id="my-videos-list"></div>
     </div>
 
     <!-- Chat Screen -->
