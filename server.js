@@ -17,6 +17,8 @@ app.use(helmet({
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       "script-src-attr": ["'unsafe-inline'"],
+      "img-src": ["'self'", "data:", "https://res.cloudinary.com"],
+      "media-src": ["'self'", "https://res.cloudinary.com"],
     },
   },
 }));
