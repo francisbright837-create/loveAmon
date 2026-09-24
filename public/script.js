@@ -4,6 +4,7 @@ let token = null;
 let currentUser = null;
 let isLogin = false;
 let currentChatUserId = null;
+let currentVideoId = null;
 let notifInterval = null;
 let lastUnreadCount = 0;
 
@@ -192,9 +193,6 @@ function showApp() {
   authSection.style.display = 'none';
   app.style.display = 'block';
 
-  const nameEl = document.getElementById('current-user-name');
-  if (nameEl && currentUser) nameEl.textContent = currentUser.name || 'User';
-
   const hasProfile = currentUser && currentUser.profilePicture;
 
   hideAllScreens();
@@ -202,7 +200,7 @@ function showApp() {
   if (hasProfile) {
     document.getElementById('profile-setup').style.display = 'none';
     document.getElementById('nav-bar').style.display = 'flex';
-    showTab('matching');
+    showTab('videos');
     startNotifPolling();
   } else {
     document.getElementById('profile-setup').style.display = 'block';
@@ -210,7 +208,11 @@ function showApp() {
 }
 
 function hideAllScreens() {
-  ['matching-screen', 'messages-screen', 'my-profile-screen', 'upload-video-screen', 'edit-profile-screen', 'chat-screen'].forEach(id => {
+  [
+    'matching-screen', 'messages-screen', 'my-profile-screen',
+    'upload-video-screen', 'edit-profile-screen', 'chat-screen',
+    'video-feed-screen', 'video-detail-screen'
+  ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -222,14 +224,18 @@ function showTab(tab) {
   hideAllScreens();
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
-  if (tab === 'matching') {
-    document.getElementById('matching-screen').style.display = 'block';
-    document.getElementById('nav-matches').classList.add('active');
-    loadProfiles();
+  if (tab === 'videos') {
+    document.getElementById('video-feed-screen').style.display = 'block';
+    document.getElementById('nav-videos').classList.add('active');
+    loadVideoFeed();
   } else if (tab === 'messages') {
     document.getElementById('messages-screen').style.display = 'block';
     document.getElementById('nav-messages').classList.add('active');
     loadConversations();
+  } else if (tab === 'matching') {
+    document.getElementById('matching-screen').style.display = 'block';
+    document.getElementById('nav-matches').classList.add('active');
+    loadProfiles();
   } else if (tab === 'profile') {
     document.getElementById('my-profile-screen').style.display = 'block';
     document.getElementById('nav-profile').classList.add('active');
@@ -269,7 +275,7 @@ async function saveProfile() {
 
     document.getElementById('profile-setup').style.display = 'none';
     document.getElementById('nav-bar').style.display = 'flex';
-    showTab('matching');
+    showTab('videos');
     startNotifPolling();
 
   } catch (err) {
@@ -383,10 +389,10 @@ async function loadMyVideos() {
     }
 
     container.innerHTML = videos.map(v => `
-      <div style="margin-bottom:20px; text-align:left;">
-        <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;"></video>
+      <div style="margin-bottom:20px; text-align:left; cursor:pointer;" onclick="openVideoDetail('${v._id}')">
+        <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;" onclick="event.stopPropagation()"></video>
         ${v.caption ? `<p style="font-size:14px; color:#555; margin-top:5px;">${v.caption}</p>` : ''}
-        <p style="font-size:13px; color:#888;">👁️ ${v.views || 0} views</p>
+        <p style="font-size:13px; color:#888;">👁️ ${v.views || 0} views · ❤️ ${v.likes?.length || 0} likes · 💬 ${v.comments?.length || 0} comments</p>
       </div>
     `).join('');
 
@@ -445,6 +451,159 @@ async function uploadVideo() {
   }
 }
 
+// ==================== VIDEO FEED ====================
+
+async function loadVideoFeed() {
+  const container = document.getElementById('video-feed');
+  container.innerHTML = '<p>Loading videos...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/videos/feed', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const videos = await res.json();
+    if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
+
+    if (!videos.length) {
+      container.innerHTML = '<p>No videos yet. Check back later! 🎬</p>';
+      return;
+    }
+
+    container.innerHTML = '';
+    videos.forEach(v => {
+      const liked = v.likes?.includes(currentUser.id);
+      const card = document.createElement('div');
+      card.className = 'video-feed-card';
+      card.innerHTML = `
+        <p><strong>${v.user?.name || 'Unknown'}</strong></p>
+        <video src="${v.url}" controls crossorigin="anonymous" onclick="openVideoDetail('${v._id}')"></video>
+        ${v.caption ? `<p style="margin-top:8px;">${v.caption}</p>` : ''}
+        <div class="video-actions">
+          <button onclick="likeVideoFeed('${v._id}')" style="background:${liked ? '#ff4d8d' : '#eee'}; color:${liked ? 'white' : '#333'};">❤️ ${v.likes?.length || 0}</button>
+          <button onclick="openVideoDetail('${v._id}')" style="background:#eee; color:#333;">💬 ${v.comments?.length || 0} Comments</button>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+
+  } catch (err) {
+    container.innerHTML = '<p>Could not load videos.</p>';
+  }
+}
+
+async function likeVideoFeed(videoId) {
+  try {
+    const res = await fetch(API_URL + '/videos/like/' + videoId, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to like video');
+
+    loadVideoFeed();
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
+// ==================== VIDEO DETAIL PAGE ====================
+
+async function openVideoDetail(videoId) {
+  currentVideoId = videoId;
+  hideAllScreens();
+  document.getElementById('video-detail-screen').style.display = 'block';
+  await loadVideoDetail(videoId);
+
+  fetch(API_URL + '/videos/view/' + videoId, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token }
+  });
+}
+
+function closeVideoDetail() {
+  document.getElementById('video-detail-screen').style.display = 'none';
+  currentVideoId = null;
+  showTab('videos');
+}
+
+async function loadVideoDetail(videoId) {
+  const content = document.getElementById('video-detail-content');
+  const commentsList = document.getElementById('video-comments-list');
+  content.innerHTML = '<p>Loading...</p>';
+  commentsList.innerHTML = '';
+
+  try {
+    const res = await fetch(API_URL + '/videos/' + videoId, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const video = await res.json();
+    if (!res.ok) throw new Error(video.message || 'Failed to load video');
+
+    const liked = video.likes?.includes(currentUser.id);
+
+    content.innerHTML = `
+      <p><strong>${video.user?.name || 'Unknown'}</strong></p>
+      <video src="${video.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;"></video>
+      ${video.caption ? `<p style="margin-top:8px;">${video.caption}</p>` : ''}
+      <p style="font-size:13px; color:#888;">👁️ ${video.views || 0} views</p>
+      <button onclick="likeVideoDetail('${video._id}')" style="background:${liked ? '#ff4d8d' : '#eee'}; color:${liked ? 'white' : '#333'}; margin-top:10px;">❤️ ${video.likes?.length || 0} Likes</button>
+    `;
+
+    if (!video.comments || !video.comments.length) {
+      commentsList.innerHTML = '<p style="color:#888;">No comments yet. Be the first!</p>';
+    } else {
+      commentsList.innerHTML = video.comments.map(c => `
+        <div class="comment-item">
+          <strong>${c.user?.name || 'Someone'}:</strong> ${c.text}
+        </div>
+      `).join('');
+    }
+
+  } catch (err) {
+    content.innerHTML = '<p>Could not load video.</p>';
+  }
+}
+
+async function likeVideoDetail(videoId) {
+  try {
+    const res = await fetch(API_URL + '/videos/like/' + videoId, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to like video');
+
+    loadVideoDetail(videoId);
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
+async function submitComment() {
+  const input = document.getElementById('comment-input');
+  const text = input?.value?.trim();
+  if (!text || !currentVideoId) return;
+
+  input.value = '';
+
+  try {
+    const res = await fetch(API_URL + '/videos/comment/' + currentVideoId, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to post comment');
+
+    loadVideoDetail(currentVideoId);
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
 // ==================== MATCHING / PROFILES ====================
 
 async function loadProfiles() {
@@ -472,7 +631,9 @@ async function loadProfiles() {
         ${profile.profilePicture ? `<img src="${profile.profilePicture}" alt="${profile.name}">` : ''}
         <h3>${profile.name}</h3>
         <p>${profile.bio || 'No bio yet.'}</p>
-        <button onclick="likeUser('${profile._id}', '${profile.name}')">💖 Like</button>
+        <button onclick="likeUser('${profile._id}', '${profile.name}')" style="background:${profile.alreadyLiked ? '#ff4d8d' : ''};">
+          ${profile.alreadyLiked ? '💖 Liked' : '💖 Like'}
+        </button>
         <button onclick="openChat('${profile._id}', '${profile.name}')" style="background:#4d7cff;">💬 Message</button>
         <button onclick="viewVideos('${profile._id}', '${profile.name}')" style="background:#555;">🎬 View Videos</button>
         <div id="videos-${profile._id}" style="margin-top:10px;"></div>
@@ -496,6 +657,8 @@ async function likeUser(targetId, targetName) {
 
     if (data.match) {
       showMessage("🎉 It's a match with " + targetName + "!", 'success');
+    } else if (data.alreadyLiked) {
+      showMessage('You already liked ' + targetName, 'success');
     } else {
       showMessage('💕 Liked ' + targetName + '!', 'success');
     }
@@ -529,8 +692,10 @@ async function viewVideos(userId, userName) {
       container.innerHTML = '<p>' + userName + ' has no videos yet.</p>';
     } else {
       container.innerHTML = videos.map(v => `
-        <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px; margin-top:8px;"></video>
-        ${v.caption ? `<p style="font-size:13px; color:#555;">${v.caption}</p>` : ''}
+        <div style="cursor:pointer;" onclick="openVideoDetail('${v._id}')">
+          <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px; margin-top:8px;" onclick="event.stopPropagation()"></video>
+          ${v.caption ? `<p style="font-size:13px; color:#555;">${v.caption}</p>` : ''}
+        </div>
       `).join('');
     }
     container.dataset.loaded = 'true';
@@ -626,12 +791,28 @@ function renderMessages(messages) {
   messages.forEach(msg => {
     const senderId = msg.sender._id || msg.sender;
     const isMine = senderId === currentUser.id;
-    const msgDiv = document.createElement('div');
-    msgDiv.style.cssText = isMine
-      ? 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; margin:5px 0 5px auto; max-width:70%; text-align:right;'
-      : 'background:#eee; color:#333; padding:10px; border-radius:10px; margin:5px auto 5px 0; max-width:70%; text-align:left;';
-    msgDiv.textContent = msg.text;
-    container.appendChild(msgDiv);
+
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex; align-items:center; gap:6px;' + (isMine ? ' justify-content:flex-end;' : '');
+
+    const bubble = document.createElement('div');
+    bubble.style.cssText = isMine
+      ? 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; max-width:70%; text-align:right;'
+      : 'background:#eee; color:#333; padding:10px; border-radius:10px; max-width:70%; text-align:left;';
+    bubble.textContent = msg.text;
+    wrap.appendChild(bubble);
+
+    if (isMine) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'delete-msg-btn';
+      delBtn.textContent = '🗑️';
+      delBtn.title = 'Delete for me';
+      delBtn.onclick = () => deleteMessage(msg._id);
+      wrap.appendChild(delBtn);
+    }
+
+    wrap.style.margin = '5px 0';
+    container.appendChild(wrap);
   });
 
   container.scrollTop = container.scrollHeight;
@@ -657,6 +838,22 @@ async function sendMessage() {
     if (!res.ok) throw new Error(data.message || 'Failed to send message');
 
     await loadMessages(currentChatUserId);
+
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
+async function deleteMessage(messageId) {
+  try {
+    const res = await fetch(API_URL + '/messages/' + messageId, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to delete message');
+
+    if (currentChatUserId) await loadMessages(currentChatUserId);
 
   } catch (err) {
     showMessage('❌ ' + err.message);

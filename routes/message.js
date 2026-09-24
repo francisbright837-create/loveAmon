@@ -4,7 +4,7 @@ const User = require("../models/User");
 
 const router = express.Router();
 
-// Get unread message count (for notifications) — MUST come before /:userId
+// Get unread message count
 router.get("/unread/count", async (req, res) => {
   try {
     const count = await Message.countDocuments({
@@ -17,13 +17,14 @@ router.get("/unread/count", async (req, res) => {
   }
 });
 
-// Get list of all conversations (for Messages tab) — MUST come before /:userId
+// Get list of all conversations
 router.get("/", async (req, res) => {
   try {
     const userId = req.userId;
 
     const messages = await Message.find({
-      $or: [{ sender: userId }, { receiver: userId }]
+      $or: [{ sender: userId }, { receiver: userId }],
+      deletedFor: { $ne: userId }
     }).sort({ createdAt: -1 }).lean();
 
     const conversationsMap = {};
@@ -71,7 +72,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Get chat history with a specific user
+// Get chat history with a specific user (hides messages this user deleted)
 router.get("/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -81,7 +82,8 @@ router.get("/:userId", async (req, res) => {
       $or: [
         { sender: currentUserId, receiver: userId },
         { sender: userId, receiver: currentUserId }
-      ]
+      ],
+      deletedFor: { $ne: currentUserId }
     })
     .sort({ createdAt: 1 })
     .populate("sender", "name profilePicture");
@@ -111,7 +113,6 @@ router.post("/:userId", async (req, res) => {
     });
 
     await message.save();
-
     await message.populate("sender", "name profilePicture");
 
     res.status(201).json(message);
@@ -134,6 +135,28 @@ router.put("/read/:userId", async (req, res) => {
 
     res.json({ message: "Messages marked as read" });
   } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Delete a message (only for the sender's own view — receiver still sees it)
+router.delete("/:messageId", async (req, res) => {
+  try {
+    const message = await Message.findById(req.params.messageId);
+    if (!message) return res.status(404).json({ message: "Message not found" });
+
+    if (message.sender.toString() !== req.userId) {
+      return res.status(403).json({ message: "You can only delete messages you sent" });
+    }
+
+    if (!message.deletedFor.includes(req.userId)) {
+      message.deletedFor.push(req.userId);
+      await message.save();
+    }
+
+    res.json({ message: "Message deleted" });
+  } catch (err) {
+    console.error("Delete message error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });

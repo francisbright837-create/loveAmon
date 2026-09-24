@@ -53,7 +53,7 @@ router.get("/my-videos", async (req, res) => {
   }
 });
 
-// ✅ NEW: Get videos for a specific user (to view on their profile)
+// Get videos for a specific user (to view on their profile)
 router.get("/user/:userId", async (req, res) => {
   try {
     const videos = await Video.find({ user: req.params.userId })
@@ -87,6 +87,26 @@ router.post("/like/:videoId", async (req, res) => {
   }
 });
 
+// Add a comment to a video
+router.post("/comment/:videoId", async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text?.trim()) return res.status(400).json({ message: "Comment text required" });
+
+    const video = await Video.findById(req.params.videoId);
+    if (!video) return res.status(404).json({ message: "Video not found" });
+
+    video.comments.push({ user: req.userId, text: text.trim() });
+    await video.save();
+    await video.populate("comments.user", "name profilePicture");
+
+    res.status(201).json(video.comments[video.comments.length - 1]);
+  } catch (err) {
+    console.error("Comment error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // Increment view count
 router.post("/view/:videoId", async (req, res) => {
   try {
@@ -105,11 +125,12 @@ router.post("/view/:videoId", async (req, res) => {
   }
 });
 
-// Get single video
+// Get single video (with populated user and comments, for the video's own page)
 router.get("/:videoId", async (req, res) => {
   try {
     const video = await Video.findById(req.params.videoId)
       .populate("user", "name profilePicture")
+      .populate("comments.user", "name profilePicture")
       .lean();
 
     if (!video) return res.status(404).json({ message: "Video not found" });

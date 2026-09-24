@@ -44,10 +44,7 @@
       font-size: 14px;
       position: relative;
     }
-    .nav-btn.active {
-      background: #ff4d8d;
-      color: white;
-    }
+    .nav-btn.active { background: #ff4d8d; color: white; }
     .nav-badge {
       display: none;
       position: absolute;
@@ -78,6 +75,51 @@
       height: 50px;
       border-radius: 50%;
       object-fit: cover;
+    }
+    .video-feed-card {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      margin: 0 auto 20px;
+      max-width: 400px;
+      text-align: left;
+    }
+    .video-feed-card video {
+      width: 100%;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .video-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .video-actions button {
+      flex: 1;
+      margin: 0;
+    }
+    .comment-item {
+      background: #f5f5f5;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-bottom: 8px;
+      text-align: left;
+      font-size: 14px;
+    }
+    .msg-bubble-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .delete-msg-btn {
+      background: none;
+      border: none;
+      color: #999;
+      cursor: pointer;
+      font-size: 14px;
+      width: auto;
+      padding: 2px 6px;
+      margin: 0;
     }
   </style>
 </head>
@@ -139,28 +181,46 @@
       <button onclick="saveProfile()" style="margin-top:20px; padding:12px 24px;">Save & Start Matching</button>
     </div>
 
-    <!-- Nav bar (shown once profile is set up) -->
+    <!-- Nav bar: Videos, Messages, Matches, Profile -->
     <div id="nav-bar" class="nav-bar" style="display:none;">
-      <button class="nav-btn" id="nav-matches" onclick="showTab('matching')">💕 Matches</button>
+      <button class="nav-btn" id="nav-videos" onclick="showTab('videos')">🎬 Videos</button>
       <button class="nav-btn" id="nav-messages" onclick="showTab('messages')">
         💬 Messages
         <span id="nav-msg-badge" class="nav-badge">0</span>
       </button>
+      <button class="nav-btn" id="nav-matches" onclick="showTab('matching')">💕 Matches</button>
       <button class="nav-btn" id="nav-profile" onclick="showTab('profile')">👤 Profile</button>
       <button class="nav-btn" onclick="logout()">🚪 Log out</button>
     </div>
 
-    <!-- Matching / Browsing Screen -->
-    <div id="matching-screen" style="display:none;">
-      <h2>Welcome back, <span id="current-user-name">...</span></h2>
-      <h3>Find someone special</h3>
-      <div id="profiles"></div>
+    <!-- Video Feed Screen -->
+    <div id="video-feed-screen" style="display:none;">
+      <h2>Videos 🎬</h2>
+      <div id="video-feed"></div>
+    </div>
+
+    <!-- Video Detail Screen (own page for a single video) -->
+    <div id="video-detail-screen" style="display:none; max-width:500px; margin:0 auto;">
+      <button onclick="closeVideoDetail()" style="margin-bottom:15px;">← Back</button>
+      <div id="video-detail-content"></div>
+      <h3 style="margin-top:20px;">Comments 💬</h3>
+      <div id="video-comments-list"></div>
+      <div style="display:flex; gap:10px; margin-top:10px;">
+        <input type="text" id="comment-input" placeholder="Add a comment..." style="flex:1; padding:10px; border-radius:20px; border:1px solid #ddd;">
+        <button onclick="submitComment()" style="width:auto; padding:10px 20px;">Post</button>
+      </div>
     </div>
 
     <!-- Messages List Screen -->
     <div id="messages-screen" style="display:none;">
       <h2>Your Conversations 💬</h2>
       <div id="conversations-list"></div>
+    </div>
+
+    <!-- Matching / Browsing Screen -->
+    <div id="matching-screen" style="display:none;">
+      <h2>Find someone special</h2>
+      <div id="profiles"></div>
     </div>
 
     <!-- My Profile Screen -->
