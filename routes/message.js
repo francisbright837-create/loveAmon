@@ -4,7 +4,7 @@ const User = require("../models/User");
 
 const router = express.Router();
 
-// ✅ Get unread message count (for notifications) — MUST come before /:userId
+// Get unread message count (for notifications) — MUST come before /:userId
 router.get("/unread/count", async (req, res) => {
   try {
     const count = await Message.countDocuments({
@@ -13,6 +13,60 @@ router.get("/unread/count", async (req, res) => {
     });
     res.json({ count });
   } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get list of all conversations (for Messages tab) — MUST come before /:userId
+router.get("/", async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const messages = await Message.find({
+      $or: [{ sender: userId }, { receiver: userId }]
+    }).sort({ createdAt: -1 }).lean();
+
+    const conversationsMap = {};
+
+    messages.forEach(msg => {
+      const senderId = msg.sender.toString();
+      const receiverId = msg.receiver.toString();
+      const otherId = senderId === userId ? receiverId : senderId;
+
+      if (!conversationsMap[otherId]) {
+        conversationsMap[otherId] = {
+          userId: otherId,
+          lastMessage: msg.text,
+          lastMessageAt: msg.createdAt,
+          unreadCount: 0
+        };
+      }
+
+      if (receiverId === userId && !msg.read) {
+        conversationsMap[otherId].unreadCount++;
+      }
+    });
+
+    const otherIds = Object.keys(conversationsMap);
+    const users = await User.find({ _id: { $in: otherIds } })
+      .select("name profilePicture")
+      .lean();
+
+    users.forEach(u => {
+      const entry = conversationsMap[u._id.toString()];
+      if (entry) {
+        entry.name = u.name;
+        entry.profilePicture = u.profilePicture;
+      }
+    });
+
+    const conversations = Object.values(conversationsMap)
+      .filter(c => c.name)
+      .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+
+    res.json(conversations);
+  } catch (err) {
+    console.error("Conversations error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
