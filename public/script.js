@@ -52,10 +52,7 @@ function toggleForm() {
   const btn = document.getElementById('submit-btn');
   const toggleText = document.getElementById('toggle-text');
 
-  if (!title || !btn || !toggleText) {
-    console.error('Form elements not found!');
-    return;
-  }
+  if (!title || !btn || !toggleText) return;
 
   if (isLogin) {
     title.textContent = 'Log In';
@@ -122,9 +119,7 @@ async function doRegister(name, email, password, gender, interest) {
     clearTimeout(slowTimer);
     const data = await res.json();
 
-    if (!res.ok) {
-      throw new Error(data.message || 'Registration failed');
-    }
+    if (!res.ok) throw new Error(data.message || 'Registration failed');
 
     hideMessage();
     showMessage('✅ Account created! Please log in.', 'success');
@@ -135,9 +130,7 @@ async function doRegister(name, email, password, gender, interest) {
     document.getElementById('gender').value = '';
     document.getElementById('interest').value = '';
 
-    setTimeout(() => {
-      toggleForm();
-    }, 2000);
+    setTimeout(() => { toggleForm(); }, 2000);
 
   } catch (err) {
     clearTimeout(slowTimer);
@@ -168,9 +161,7 @@ async function doLogin(email, password) {
     clearTimeout(slowTimer);
     const data = await res.json();
 
-    if (!res.ok) {
-      throw new Error(data.message || 'Login failed');
-    }
+    if (!res.ok) throw new Error(data.message || 'Login failed');
 
     token = data.token;
     currentUser = data.user;
@@ -180,9 +171,7 @@ async function doLogin(email, password) {
     hideMessage();
     showMessage('✅ Login successful! Redirecting...', 'success');
 
-    setTimeout(() => {
-      showApp();
-    }, 1000);
+    setTimeout(() => { showApp(); }, 1000);
 
   } catch (err) {
     clearTimeout(slowTimer);
@@ -198,35 +187,54 @@ async function doLogin(email, password) {
 function showApp() {
   const authSection = document.getElementById('auth-section');
   const app = document.getElementById('app');
-
-  if (!authSection || !app) {
-    console.error('App elements not found!');
-    return;
-  }
+  if (!authSection || !app) return;
 
   authSection.style.display = 'none';
   app.style.display = 'block';
 
   const nameEl = document.getElementById('current-user-name');
-  if (nameEl && currentUser) {
-    nameEl.textContent = currentUser.name || 'User';
-  }
+  if (nameEl && currentUser) nameEl.textContent = currentUser.name || 'User';
 
   const hasProfile = currentUser && currentUser.profilePicture;
 
-  document.getElementById('chat-screen').style.display = 'none';
-  document.getElementById('upload-video-screen').style.display = 'none';
-  document.getElementById('edit-profile-screen').style.display = 'none';
-  document.getElementById('my-profile-screen').style.display = 'none';
+  hideAllScreens();
 
   if (hasProfile) {
     document.getElementById('profile-setup').style.display = 'none';
-    document.getElementById('matching-screen').style.display = 'block';
-    loadProfiles();
+    document.getElementById('nav-bar').style.display = 'flex';
+    showTab('matching');
     startNotifPolling();
   } else {
     document.getElementById('profile-setup').style.display = 'block';
-    document.getElementById('matching-screen').style.display = 'none';
+  }
+}
+
+function hideAllScreens() {
+  ['matching-screen', 'messages-screen', 'my-profile-screen', 'upload-video-screen', 'edit-profile-screen', 'chat-screen'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
+// ==================== TAB NAVIGATION ====================
+
+function showTab(tab) {
+  hideAllScreens();
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+  if (tab === 'matching') {
+    document.getElementById('matching-screen').style.display = 'block';
+    document.getElementById('nav-matches').classList.add('active');
+    loadProfiles();
+  } else if (tab === 'messages') {
+    document.getElementById('messages-screen').style.display = 'block';
+    document.getElementById('nav-messages').classList.add('active');
+    loadConversations();
+  } else if (tab === 'profile') {
+    document.getElementById('my-profile-screen').style.display = 'block';
+    document.getElementById('nav-profile').classList.add('active');
+    loadMyProfile();
+    loadMyVideos();
   }
 }
 
@@ -246,17 +254,12 @@ async function saveProfile() {
 
     const res = await fetch(API_URL + '/profile/setup', {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token
-      },
+      headers: { 'Authorization': 'Bearer ' + token },
       body: formData
     });
 
     const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.message || 'Failed to save profile');
-    }
+    if (!res.ok) throw new Error(data.message || 'Failed to save profile');
 
     currentUser = { ...currentUser, ...data };
     localStorage.setItem('user', JSON.stringify(currentUser));
@@ -265,8 +268,8 @@ async function saveProfile() {
     showMessage('✅ Profile saved!', 'success');
 
     document.getElementById('profile-setup').style.display = 'none';
-    document.getElementById('matching-screen').style.display = 'block';
-    loadProfiles();
+    document.getElementById('nav-bar').style.display = 'flex';
+    showTab('matching');
     startNotifPolling();
 
   } catch (err) {
@@ -275,7 +278,6 @@ async function saveProfile() {
   }
 }
 
-// Handles photo preview for both the initial setup input and the edit-profile input
 document.addEventListener('change', (e) => {
   if (e.target && (e.target.id === 'photo-input' || e.target.id === 'edit-photo-input')) {
     const file = e.target.files[0];
@@ -291,16 +293,16 @@ document.addEventListener('change', (e) => {
   }
 });
 
-// ==================== EDIT PROFILE PICTURE (after setup) ====================
+// ==================== EDIT PROFILE PICTURE ====================
 
 function openEditProfile() {
-  document.getElementById('matching-screen').style.display = 'none';
+  hideAllScreens();
   document.getElementById('edit-profile-screen').style.display = 'block';
 }
 
 function closeEditProfile() {
   document.getElementById('edit-profile-screen').style.display = 'none';
-  document.getElementById('matching-screen').style.display = 'block';
+  showTab('profile');
 }
 
 async function updateProfilePicture() {
@@ -325,7 +327,6 @@ async function updateProfilePicture() {
     });
 
     const data = await res.json();
-
     if (!res.ok) throw new Error(data.message || 'Failed to update photo');
 
     currentUser = { ...currentUser, ...data };
@@ -334,10 +335,7 @@ async function updateProfilePicture() {
     hideMessage();
     showMessage('✅ Profile picture updated!', 'success');
 
-    setTimeout(() => {
-      closeEditProfile();
-      loadProfiles();
-    }, 1000);
+    setTimeout(() => { closeEditProfile(); }, 1000);
 
   } catch (err) {
     hideMessage();
@@ -346,18 +344,6 @@ async function updateProfilePicture() {
 }
 
 // ==================== MY PROFILE ====================
-
-function openMyProfile() {
-  document.getElementById('matching-screen').style.display = 'none';
-  document.getElementById('my-profile-screen').style.display = 'block';
-  loadMyProfile();
-  loadMyVideos();
-}
-
-function closeMyProfile() {
-  document.getElementById('my-profile-screen').style.display = 'none';
-  document.getElementById('matching-screen').style.display = 'block';
-}
 
 async function loadMyProfile() {
   const container = document.getElementById('my-profile-details');
@@ -368,7 +354,6 @@ async function loadMyProfile() {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     const user = await res.json();
-
     if (!res.ok) throw new Error(user.message || 'Failed to load profile');
 
     container.innerHTML = `
@@ -390,11 +375,10 @@ async function loadMyVideos() {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     const videos = await res.json();
-
     if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
 
     if (!videos.length) {
-      container.innerHTML = '<p>You haven\'t uploaded any videos yet.</p>';
+      container.innerHTML = "<p>You haven't uploaded any videos yet.</p>";
       return;
     }
 
@@ -414,13 +398,13 @@ async function loadMyVideos() {
 // ==================== VIDEO UPLOAD ====================
 
 function openUploadVideo() {
-  document.getElementById('matching-screen').style.display = 'none';
+  hideAllScreens();
   document.getElementById('upload-video-screen').style.display = 'block';
 }
 
 function closeUploadVideo() {
   document.getElementById('upload-video-screen').style.display = 'none';
-  document.getElementById('matching-screen').style.display = 'block';
+  showTab('profile');
 }
 
 async function uploadVideo() {
@@ -448,16 +432,13 @@ async function uploadVideo() {
     });
 
     const data = await res.json();
-
     if (!res.ok) throw new Error(data.message || 'Upload failed');
 
     statusDiv.textContent = '✅ Video uploaded successfully!';
     document.getElementById('video-input').value = '';
     document.getElementById('video-caption').value = '';
 
-    setTimeout(() => {
-      closeUploadVideo();
-    }, 1500);
+    setTimeout(() => { closeUploadVideo(); }, 1500);
 
   } catch (err) {
     statusDiv.textContent = '❌ ' + err.message;
@@ -476,7 +457,6 @@ async function loadProfiles() {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     const data = await res.json();
-
     if (!res.ok) throw new Error(data.message || 'Failed to load profiles');
 
     if (!data.profiles || data.profiles.length === 0) {
@@ -502,7 +482,6 @@ async function loadProfiles() {
 
   } catch (err) {
     container.innerHTML = '<p>Could not load profiles. Try again later.</p>';
-    console.error('Load profiles error:', err);
   }
 }
 
@@ -513,7 +492,6 @@ async function likeUser(targetId, targetName) {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     const data = await res.json();
-
     if (!res.ok) throw new Error(data.message || 'Failed to like user');
 
     if (data.match) {
@@ -545,7 +523,6 @@ async function viewVideos(userId, userName) {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     const videos = await res.json();
-
     if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
 
     if (!videos.length) {
@@ -563,11 +540,45 @@ async function viewVideos(userId, userName) {
   }
 }
 
+// ==================== MESSAGES LIST ====================
+
+async function loadConversations() {
+  const container = document.getElementById('conversations-list');
+  container.innerHTML = '<p>Loading conversations...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/messages', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const conversations = await res.json();
+    if (!res.ok) throw new Error(conversations.message || 'Failed to load conversations');
+
+    if (!conversations.length) {
+      container.innerHTML = '<p>No conversations yet. Go like or message someone! 💕</p>';
+      return;
+    }
+
+    container.innerHTML = conversations.map(c => `
+      <div class="conversation-item" onclick="openChat('${c.userId}', '${c.name}')">
+        ${c.profilePicture ? `<img src="${c.profilePicture}">` : ''}
+        <div style="flex:1;">
+          <strong>${c.name}</strong>
+          <p style="margin:0; color:#666; font-size:14px;">${c.lastMessage}</p>
+        </div>
+        ${c.unreadCount > 0 ? `<span style="background:red; color:white; border-radius:50%; padding:4px 10px; font-size:12px;">${c.unreadCount}</span>` : ''}
+      </div>
+    `).join('');
+
+  } catch (err) {
+    container.innerHTML = '<p>Could not load conversations.</p>';
+  }
+}
+
 // ==================== CHAT ====================
 
 async function openChat(userId, userName) {
   currentChatUserId = userId;
-  document.getElementById('matching-screen').style.display = 'none';
+  hideAllScreens();
   document.getElementById('chat-screen').style.display = 'block';
   document.getElementById('chat-with-name').textContent = userName;
   await loadMessages(userId);
@@ -576,7 +587,7 @@ async function openChat(userId, userName) {
 
 function closeChat() {
   document.getElementById('chat-screen').style.display = 'none';
-  document.getElementById('matching-screen').style.display = 'block';
+  showTab('messages');
   currentChatUserId = null;
 }
 
@@ -589,7 +600,6 @@ async function loadMessages(userId) {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     const messages = await res.json();
-
     if (!res.ok) throw new Error(messages.message || 'Failed to load messages');
 
     renderMessages(messages);
@@ -644,7 +654,6 @@ async function sendMessage() {
       body: JSON.stringify({ text })
     });
     const data = await res.json();
-
     if (!res.ok) throw new Error(data.message || 'Failed to send message');
 
     await loadMessages(currentChatUserId);
@@ -674,7 +683,7 @@ async function checkUnreadMessages() {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     const data = await res.json();
-    const badge = document.getElementById('notif-badge');
+    const badge = document.getElementById('nav-msg-badge');
 
     if (data.count > 0) {
       if (badge) {
@@ -704,11 +713,9 @@ function logout() {
 
   stopNotifPolling();
 
-  const authSection = document.getElementById('auth-section');
-  const app = document.getElementById('app');
-
-  if (authSection) authSection.style.display = 'block';
-  if (app) app.style.display = 'none';
+  document.getElementById('auth-section').style.display = 'block';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('nav-bar').style.display = 'none';
 
   hideMessage();
   isLogin = false;
@@ -737,7 +744,6 @@ window.onload = function() {
   if (token && currentUser) {
     showApp();
   } else {
-    const authSection = document.getElementById('auth-section');
-    if (authSection) authSection.style.display = 'block';
+    document.getElementById('auth-section').style.display = 'block';
   }
 };
