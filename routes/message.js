@@ -156,9 +156,8 @@ router.delete("/:messageId", async (req, res) => {
       return res.status(403).json({ message: "You can only delete messages you sent" });
     }
 
-    if (mode === "everyone") {
+       if (mode === "everyone") {
       message.deletedForEveryone = true;
-      message.text = "";
     } else {
       if (!message.deletedFor.includes(req.userId)) {
         message.deletedFor.push(req.userId);
