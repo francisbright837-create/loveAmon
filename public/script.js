@@ -7,6 +7,7 @@ let currentChatUserId = null;
 let currentVideoId = null;
 let notifInterval = null;
 let lastUnreadCount = 0;
+let contextMenuMessageId = null;
 
 // ==================== UI HELPERS ====================
 
@@ -793,29 +794,62 @@ function renderMessages(messages) {
     const isMine = senderId === currentUser.id;
 
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex; align-items:center; gap:6px;' + (isMine ? ' justify-content:flex-end;' : '');
+    wrap.style.cssText = 'display:flex;' + (isMine ? ' justify-content:flex-end;' : '');
+    wrap.style.margin = '5px 0';
 
     const bubble = document.createElement('div');
     bubble.style.cssText = isMine
-      ? 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; max-width:70%; text-align:right;'
+      ? 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; max-width:70%; text-align:right; cursor:pointer;'
       : 'background:#eee; color:#333; padding:10px; border-radius:10px; max-width:70%; text-align:left;';
-    bubble.textContent = msg.text;
-    wrap.appendChild(bubble);
+    bubble.textContent = msg.deletedForEveryone ? '🚫 This message was deleted' : msg.text;
+    if (msg.deletedForEveryone) bubble.style.fontStyle = 'italic';
 
-    if (isMine) {
-      const delBtn = document.createElement('button');
-      delBtn.className = 'delete-msg-btn';
-      delBtn.textContent = '🗑️';
-      delBtn.title = 'Delete for me';
-      delBtn.onclick = () => deleteMessage(msg._id);
-      wrap.appendChild(delBtn);
+    if (isMine && !msg.deletedForEveryone) {
+      bubble.oncontextmenu = (e) => {
+        e.preventDefault();
+        openMessageContextMenu(e, msg._id);
+      };
     }
 
-    wrap.style.margin = '5px 0';
+    wrap.appendChild(bubble);
     container.appendChild(wrap);
   });
 
   container.scrollTop = container.scrollHeight;
+}
+
+function openMessageContextMenu(e, messageId) {
+  contextMenuMessageId = messageId;
+  const menu = document.getElementById('msg-context-menu');
+  menu.style.display = 'block';
+  menu.style.left = Math.min(e.clientX, window.innerWidth - 200) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - 100) + 'px';
+}
+
+document.addEventListener('click', () => {
+  const menu = document.getElementById('msg-context-menu');
+  if (menu) menu.style.display = 'none';
+});
+
+async function confirmDeleteMessage(mode) {
+  document.getElementById('msg-context-menu').style.display = 'none';
+  if (!contextMenuMessageId) return;
+
+  try {
+    const res = await fetch(API_URL + '/messages/' + contextMenuMessageId + '?mode=' + mode, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to delete message');
+
+    if (currentChatUserId) await loadMessages(currentChatUserId);
+
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  } finally {
+    contextMenuMessageId = null;
+  }
 }
 
 async function sendMessage() {
@@ -838,22 +872,6 @@ async function sendMessage() {
     if (!res.ok) throw new Error(data.message || 'Failed to send message');
 
     await loadMessages(currentChatUserId);
-
-  } catch (err) {
-    showMessage('❌ ' + err.message);
-  }
-}
-
-async function deleteMessage(messageId) {
-  try {
-    const res = await fetch(API_URL + '/messages/' + messageId, {
-      method: 'DELETE',
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to delete message');
-
-    if (currentChatUserId) await loadMessages(currentChatUserId);
 
   } catch (err) {
     showMessage('❌ ' + err.message);

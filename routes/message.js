@@ -37,7 +37,7 @@ router.get("/", async (req, res) => {
       if (!conversationsMap[otherId]) {
         conversationsMap[otherId] = {
           userId: otherId,
-          lastMessage: msg.text,
+          lastMessage: msg.deletedForEveryone ? "🚫 This message was deleted" : msg.text,
           lastMessageAt: msg.createdAt,
           unreadCount: 0
         };
@@ -72,7 +72,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Get chat history with a specific user (hides messages this user deleted)
+// Get chat history with a specific user
 router.get("/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -88,7 +88,13 @@ router.get("/:userId", async (req, res) => {
     .sort({ createdAt: 1 })
     .populate("sender", "name profilePicture");
 
-    res.json(messages);
+    const shaped = messages.map(m => {
+      const obj = m.toObject();
+      if (obj.deletedForEveryone) obj.text = "🚫 This message was deleted";
+      return obj;
+    });
+
+    res.json(shaped);
   } catch (err) {
     console.error("Get messages error:", err);
     res.status(500).json({ message: "Server error" });
@@ -139,9 +145,10 @@ router.put("/read/:userId", async (req, res) => {
   }
 });
 
-// Delete a message (only for the sender's own view — receiver still sees it)
+// Delete a message — mode: "me" (only your view) or "everyone" (hides it for both, sender only)
 router.delete("/:messageId", async (req, res) => {
   try {
+    const { mode } = req.query;
     const message = await Message.findById(req.params.messageId);
     if (!message) return res.status(404).json({ message: "Message not found" });
 
@@ -149,10 +156,16 @@ router.delete("/:messageId", async (req, res) => {
       return res.status(403).json({ message: "You can only delete messages you sent" });
     }
 
-    if (!message.deletedFor.includes(req.userId)) {
-      message.deletedFor.push(req.userId);
-      await message.save();
+    if (mode === "everyone") {
+      message.deletedForEveryone = true;
+      message.text = "";
+    } else {
+      if (!message.deletedFor.includes(req.userId)) {
+        message.deletedFor.push(req.userId);
+      }
     }
+
+    await message.save();
 
     res.json({ message: "Message deleted" });
   } catch (err) {
