@@ -5,6 +5,7 @@ let currentUser = null;
 let isLogin = false;
 let currentChatUserId = null;
 let currentVideoId = null;
+let currentPublicProfileId = null;
 let notifInterval = null;
 let lastUnreadCount = 0;
 let contextMenuMessageId = null;
@@ -200,7 +201,7 @@ function showApp() {
 
   if (hasProfile) {
     document.getElementById('profile-setup').style.display = 'none';
-    document.getElementById('nav-bar').style.display = 'flex';
+    document.getElementById('bottom-nav').style.display = 'flex';
     showTab('videos');
     startNotifPolling();
   } else {
@@ -212,7 +213,7 @@ function hideAllScreens() {
   [
     'matching-screen', 'messages-screen', 'my-profile-screen',
     'upload-video-screen', 'edit-profile-screen', 'chat-screen',
-    'video-feed-screen', 'video-detail-screen'
+    'video-feed-screen', 'video-detail-screen', 'public-profile-screen'
   ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -223,7 +224,7 @@ function hideAllScreens() {
 
 function showTab(tab) {
   hideAllScreens();
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#bottom-nav button').forEach(b => b.classList.remove('active'));
 
   if (tab === 'videos') {
     document.getElementById('video-feed-screen').style.display = 'block';
@@ -275,7 +276,7 @@ async function saveProfile() {
     showMessage('✅ Profile saved!', 'success');
 
     document.getElementById('profile-setup').style.display = 'none';
-    document.getElementById('nav-bar').style.display = 'flex';
+    document.getElementById('bottom-nav').style.display = 'flex';
     showTab('videos');
     startNotifPolling();
 
@@ -366,6 +367,7 @@ async function loadMyProfile() {
     container.innerHTML = `
       ${user.profilePicture ? `<img src="${user.profilePicture}" style="width:180px; height:180px; object-fit:cover; border-radius:50%; margin-bottom:15px;">` : '<p>No profile picture yet.</p>'}
       <h3>${user.name}</h3>
+      <p style="color:#666;">${user.followers?.length || 0} followers · ${user.following?.length || 0} following</p>
       <p>${user.bio || 'No bio yet.'}</p>
     `;
   } catch (err) {
@@ -411,7 +413,7 @@ function openUploadVideo() {
 
 function closeUploadVideo() {
   document.getElementById('upload-video-screen').style.display = 'none';
-  showTab('profile');
+  showTab('videos');
 }
 
 async function uploadVideo() {
@@ -476,7 +478,7 @@ async function loadVideoFeed() {
       const card = document.createElement('div');
       card.className = 'video-feed-card';
       card.innerHTML = `
-        <p><strong>${v.user?.name || 'Unknown'}</strong></p>
+        <p class="video-author" onclick="openPublicProfile('${v.user?._id}')">${v.user?.name || 'Unknown'}</p>
         <video src="${v.url}" controls crossorigin="anonymous" onclick="openVideoDetail('${v._id}')"></video>
         ${v.caption ? `<p style="margin-top:8px;">${v.caption}</p>` : ''}
         <div class="video-actions">
@@ -502,6 +504,131 @@ async function likeVideoFeed(videoId) {
     if (!res.ok) throw new Error(data.message || 'Failed to like video');
 
     loadVideoFeed();
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
+// ==================== SEARCH USERS ====================
+
+async function searchUsers() {
+  const input = document.getElementById('search-input');
+  const q = input?.value?.trim();
+  const container = document.getElementById('search-results');
+  const feed = document.getElementById('video-feed');
+
+  if (!q) {
+    container.innerHTML = '';
+    feed.style.display = 'block';
+    return;
+  }
+
+  feed.style.display = 'none';
+  container.innerHTML = '<p>Searching...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/follow/search?q=' + encodeURIComponent(q), {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const users = await res.json();
+    if (!res.ok) throw new Error(users.message || 'Search failed');
+
+    if (!users.length) {
+      container.innerHTML = '<p>No users found.</p>';
+      return;
+    }
+
+    container.innerHTML = users.map(u => `
+      <div class="search-result-item" onclick="openPublicProfile('${u._id}')">
+        ${u.profilePicture ? `<img src="${u.profilePicture}">` : ''}
+        <div>
+          <strong>${u.name}</strong>
+          <p style="margin:0; color:#666; font-size:13px;">${u.bio || ''}</p>
+        </div>
+      </div>
+    `).join('');
+
+  } catch (err) {
+    container.innerHTML = '<p>Could not search users.</p>';
+  }
+}
+
+// ==================== PUBLIC PROFILE (view someone else) ====================
+
+async function openPublicProfile(userId) {
+  if (!userId) return;
+  currentPublicProfileId = userId;
+  hideAllScreens();
+  document.getElementById('public-profile-screen').style.display = 'block';
+  await loadPublicProfile(userId);
+}
+
+function closePublicProfile() {
+  document.getElementById('public-profile-screen').style.display = 'none';
+  currentPublicProfileId = null;
+  showTab('videos');
+}
+
+async function loadPublicProfile(userId) {
+  const details = document.getElementById('public-profile-details');
+  const videosContainer = document.getElementById('public-profile-videos');
+  details.innerHTML = '<p>Loading...</p>';
+  videosContainer.innerHTML = '';
+
+  try {
+    const res = await fetch(API_URL + '/follow/' + userId, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const profile = await res.json();
+    if (!res.ok) throw new Error(profile.message || 'Failed to load profile');
+
+    details.innerHTML = `
+      ${profile.profilePicture ? `<img src="${profile.profilePicture}" style="width:150px; height:150px; object-fit:cover; border-radius:50%; margin-bottom:10px;">` : ''}
+      <h3>${profile.name}</h3>
+      <p style="color:#666;">${profile.followersCount} followers · ${profile.followingCount} following</p>
+      <p>${profile.bio || ''}</p>
+      ${!profile.isSelf ? `
+        <button onclick="toggleFollow('${profile._id}')" style="background:${profile.isFollowing ? '#eee' : '#ff4d8d'}; color:${profile.isFollowing ? '#333' : 'white'};">
+          ${profile.isFollowing ? 'Following ✓' : '+ Follow'}
+        </button>
+        <button onclick="openChat('${profile._id}', '${profile.name}')" style="background:#4d7cff;">💬 Message</button>
+      ` : ''}
+    `;
+
+    if (!profile.videos.length) {
+      videosContainer.innerHTML = '<p>No videos yet.</p>';
+    } else {
+      videosContainer.innerHTML = profile.videos.map(v => `
+        <div style="cursor:pointer; margin-bottom:15px;" onclick="openVideoDetail('${v._id}')">
+          <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;" onclick="event.stopPropagation()"></video>
+          ${v.caption ? `<p style="font-size:13px; color:#555;">${v.caption}</p>` : ''}
+        </div>
+      `).join('');
+    }
+
+  } catch (err) {
+    details.innerHTML = '<p>Could not load profile.</p>';
+  }
+}
+
+async function toggleFollow(userId) {
+  try {
+    const profileRes = await fetch(API_URL + '/follow/' + userId, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const profile = await profileRes.json();
+
+    const method = profile.isFollowing ? 'DELETE' : 'POST';
+
+    const res = await fetch(API_URL + '/follow/' + userId, {
+      method,
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to update follow status');
+
+    loadPublicProfile(userId);
+
   } catch (err) {
     showMessage('❌ ' + err.message);
   }
@@ -543,7 +670,7 @@ async function loadVideoDetail(videoId) {
     const liked = video.likes?.includes(currentUser.id);
 
     content.innerHTML = `
-      <p><strong>${video.user?.name || 'Unknown'}</strong></p>
+      <p class="video-author" onclick="openVideoDetailAuthor('${video.user?._id}')"><strong>${video.user?.name || 'Unknown'}</strong></p>
       <video src="${video.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;"></video>
       ${video.caption ? `<p style="margin-top:8px;">${video.caption}</p>` : ''}
       <p style="font-size:13px; color:#888;">👁️ ${video.views || 0} views</p>
@@ -563,6 +690,10 @@ async function loadVideoDetail(videoId) {
   } catch (err) {
     content.innerHTML = '<p>Could not load video.</p>';
   }
+}
+
+function openVideoDetailAuthor(userId) {
+  if (userId) openPublicProfile(userId);
 }
 
 async function likeVideoDetail(videoId) {
@@ -636,8 +767,7 @@ async function loadProfiles() {
           ${profile.alreadyLiked ? '💖 Liked' : '💖 Like'}
         </button>
         <button onclick="openChat('${profile._id}', '${profile.name}')" style="background:#4d7cff;">💬 Message</button>
-        <button onclick="viewVideos('${profile._id}', '${profile.name}')" style="background:#555;">🎬 View Videos</button>
-        <div id="videos-${profile._id}" style="margin-top:10px;"></div>
+        <button onclick="openPublicProfile('${profile._id}')" style="background:#555;">👤 View Profile</button>
       `;
       container.appendChild(card);
     });
@@ -668,41 +798,6 @@ async function likeUser(targetId, targetName) {
 
   } catch (err) {
     showMessage('❌ ' + err.message);
-  }
-}
-
-async function viewVideos(userId, userName) {
-  const container = document.getElementById('videos-' + userId);
-  if (!container) return;
-
-  if (container.dataset.loaded === 'true') {
-    container.style.display = container.style.display === 'none' ? 'block' : 'none';
-    return;
-  }
-
-  container.innerHTML = '<p>Loading videos...</p>';
-
-  try {
-    const res = await fetch(API_URL + '/videos/user/' + userId, {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const videos = await res.json();
-    if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
-
-    if (!videos.length) {
-      container.innerHTML = '<p>' + userName + ' has no videos yet.</p>';
-    } else {
-      container.innerHTML = videos.map(v => `
-        <div style="cursor:pointer;" onclick="openVideoDetail('${v._id}')">
-          <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px; margin-top:8px;" onclick="event.stopPropagation()"></video>
-          ${v.caption ? `<p style="font-size:13px; color:#555;">${v.caption}</p>` : ''}
-        </div>
-      `).join('');
-    }
-    container.dataset.loaded = 'true';
-
-  } catch (err) {
-    container.innerHTML = '<p>Could not load videos.</p>';
   }
 }
 
@@ -911,13 +1006,10 @@ async function checkUnreadMessages() {
       headers: { 'Authorization': 'Bearer ' + token }
     });
     const data = await res.json();
-    const badge = document.getElementById('nav-msg-badge');
+    const dot = document.getElementById('nav-msg-dot');
 
     if (data.count > 0) {
-      if (badge) {
-        badge.textContent = data.count;
-        badge.style.display = 'inline-block';
-      }
+      if (dot) dot.style.display = 'block';
       if (data.count > lastUnreadCount) {
         showMessage('💌 You have a new message!', 'success');
         sendBrowserNotification('LoveConnect', 'You have a new message! 💌');
@@ -926,7 +1018,7 @@ async function checkUnreadMessages() {
         }
       }
     } else {
-      if (badge) badge.style.display = 'none';
+      if (dot) dot.style.display = 'none';
     }
 
     lastUnreadCount = data.count;
@@ -947,7 +1039,7 @@ function logout() {
 
   document.getElementById('auth-section').style.display = 'block';
   document.getElementById('app').style.display = 'none';
-  document.getElementById('nav-bar').style.display = 'none';
+  document.getElementById('bottom-nav').style.display = 'none';
 
   hideMessage();
   isLogin = false;

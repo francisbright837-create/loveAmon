@@ -10,9 +10,12 @@ const userSchema = new mongoose.Schema({
   bio:         { type: String, maxlength: 500 },
   likes:       [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   matches:     [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  followers:   [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  following:   [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
 }, { timestamps: true });
 
 // Indexes for faster queries
 userSchema.index({ gender: 1, interest: 1 });
+userSchema.index({ name: "text" });
 
 module.exports = mongoose.model("User", userSchema);
