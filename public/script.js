@@ -880,7 +880,20 @@ async function sendMessage() {
 
 // ==================== NOTIFICATIONS ====================
 
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function sendBrowserNotification(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body });
+  }
+}
+
 function startNotifPolling() {
+  requestNotificationPermission();
   checkUnreadMessages();
   if (notifInterval) clearInterval(notifInterval);
   notifInterval = setInterval(checkUnreadMessages, 10000);
@@ -907,6 +920,10 @@ async function checkUnreadMessages() {
       }
       if (data.count > lastUnreadCount) {
         showMessage('💌 You have a new message!', 'success');
+        sendBrowserNotification('LoveConnect', 'You have a new message! 💌');
+        if (currentChatUserId) {
+          loadMessages(currentChatUserId);
+        }
       }
     } else {
       if (badge) badge.style.display = 'none';
