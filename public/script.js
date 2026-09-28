@@ -215,7 +215,14 @@ function showApp() {
   }
 }
 
+function pauseAllVideos() {
+  document.querySelectorAll('video').forEach(v => {
+    try { v.pause(); } catch (e) {}
+  });
+}
+
 function hideAllScreens() {
+  pauseAllVideos();
   [
     'matching-screen', 'messages-screen', 'my-profile-screen',
     'upload-video-screen', 'edit-profile-screen', 'chat-screen',
@@ -556,26 +563,31 @@ function setupFeedSwipe() {
 
   container.addEventListener('touchstart', (e) => {
     touchStartY = e.touches[0].clientY;
-  }, { passive: true });
+  }, { passive: false });
+
+  container.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+  }, { passive: false });
 
   container.addEventListener('touchend', (e) => {
     if (touchStartY === null) return;
     const deltaY = touchStartY - e.changedTouches[0].clientY;
-    if (Math.abs(deltaY) > 60) {
+    if (Math.abs(deltaY) > 50) {
       if (deltaY > 0) goToSlide(feedIndex + 1);
       else goToSlide(feedIndex - 1);
     }
     touchStartY = null;
-  });
+  }, { passive: false });
 
   let wheelLock = false;
   container.addEventListener('wheel', (e) => {
+    e.preventDefault();
     if (wheelLock) return;
     wheelLock = true;
     if (e.deltaY > 0) goToSlide(feedIndex + 1);
     else if (e.deltaY < 0) goToSlide(feedIndex - 1);
     setTimeout(() => { wheelLock = false; }, 600);
-  });
+  }, { passive: false });
 }
 
 function goToSlide(index) {
