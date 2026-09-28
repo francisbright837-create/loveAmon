@@ -10,6 +10,12 @@ let notifInterval = null;
 let lastUnreadCount = 0;
 let contextMenuMessageId = null;
 
+// Feed swipe state
+let feedVideos = [];
+let feedIndex = 0;
+let touchStartY = null;
+let feedSwipeBound = false;
+
 // ==================== UI HELPERS ====================
 
 function showMessage(msg, type = 'error') {
@@ -392,15 +398,35 @@ async function loadMyVideos() {
     }
 
     container.innerHTML = videos.map(v => `
-      <div style="margin-bottom:20px; text-align:left; cursor:pointer;" onclick="openVideoDetail('${v._id}')">
-        <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;" onclick="event.stopPropagation()"></video>
+      <div style="margin-bottom:20px; text-align:left;">
+        <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px; cursor:pointer;" onclick="openVideoDetail('${v._id}')"></video>
         ${v.caption ? `<p style="font-size:14px; color:#555; margin-top:5px;">${v.caption}</p>` : ''}
         <p style="font-size:13px; color:#888;">👁️ ${v.views || 0} views · ❤️ ${v.likes?.length || 0} likes · 💬 ${v.comments?.length || 0} comments</p>
+        <button onclick="deleteMyVideo('${v._id}')" style="background:#d32f2f; margin-top:5px;">🗑️ Delete Video</button>
       </div>
     `).join('');
 
   } catch (err) {
     container.innerHTML = '<p>Could not load your videos.</p>';
+  }
+}
+
+async function deleteMyVideo(videoId) {
+  if (!confirm('Delete this video permanently?')) return;
+
+  try {
+    const res = await fetch(API_URL + '/videos/' + videoId, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to delete video');
+
+    showMessage('✅ Video deleted', 'success');
+    loadMyVideos();
+
+  } catch (err) {
+    showMessage('❌ ' + err.message);
   }
 }
 
@@ -454,11 +480,11 @@ async function uploadVideo() {
   }
 }
 
-// ==================== VIDEO FEED ====================
+// ==================== VIDEO FEED (swipeable) ====================
 
 async function loadVideoFeed() {
   const container = document.getElementById('video-feed');
-  container.innerHTML = '<p>Loading videos...</p>';
+  container.innerHTML = '<p class="feed-empty">Loading videos...</p>';
 
   try {
     const res = await fetch(API_URL + '/videos/feed', {
@@ -467,34 +493,114 @@ async function loadVideoFeed() {
     const videos = await res.json();
     if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
 
-    if (!videos.length) {
-      container.innerHTML = '<p>No videos yet. Check back later! 🎬</p>';
+    feedVideos = videos;
+    feedIndex = 0;
+
+    if (!feedVideos.length) {
+      container.innerHTML = '<p class="feed-empty">No videos yet. Check back later! 🎬</p>';
       return;
     }
 
-    container.innerHTML = '';
-    videos.forEach(v => {
-      const liked = v.likes?.includes(currentUser.id);
-      const card = document.createElement('div');
-      card.className = 'video-feed-card';
-      card.innerHTML = `
-        <p class="video-author" onclick="openPublicProfile('${v.user?._id}')">${v.user?.name || 'Unknown'}</p>
-        <video src="${v.url}" controls crossorigin="anonymous" onclick="openVideoDetail('${v._id}')"></video>
-        ${v.caption ? `<p style="margin-top:8px;">${v.caption}</p>` : ''}
-        <div class="video-actions">
-          <button onclick="likeVideoFeed('${v._id}')" style="background:${liked ? '#ff4d8d' : '#eee'}; color:${liked ? 'white' : '#333'};">❤️ ${v.likes?.length || 0}</button>
-          <button onclick="openVideoDetail('${v._id}')" style="background:#eee; color:#333;">💬 ${v.comments?.length || 0} Comments</button>
-        </div>
-      `;
-      container.appendChild(card);
-    });
+    renderFeedSlides();
+    setupFeedSwipe();
 
   } catch (err) {
-    container.innerHTML = '<p>Could not load videos.</p>';
+    container.innerHTML = '<p class="feed-empty">Could not load videos.</p>';
   }
 }
 
-async function likeVideoFeed(videoId) {
+function renderFeedSlides() {
+  const container = document.getElementById('video-feed');
+  container.innerHTML = feedVideos.map((v, i) => {
+    const liked = v.likes?.includes(currentUser.id);
+    const heartIcon = liked ? '❤️' : '🤍';
+    return `
+      <div class="video-slide ${i === feedIndex ? 'active' : ''}" data-index="${i}">
+        <video src="${v.url}" ${i === feedIndex ? 'autoplay' : ''} loop playsinline crossorigin="anonymous" onclick="toggleSlidePlay(this)"></video>
+        <div class="slide-top">
+          <strong onclick="openPublicProfile('${v.user?._id}')">${v.user?.name || 'Unknown'}</strong>
+          ${v.user?._id !== currentUser.id ? `
+            <button class="slide-follow-btn" id="slide-follow-${v._id}" onclick="followFromSlide('${v.user?._id}', '${v._id}')">
+              ${v.isFollowingAuthor ? '✓ Following' : '+ Follow'}
+            </button>
+          ` : ''}
+        </div>
+        ${v.caption ? `<div class="slide-caption">${v.caption}</div>` : ''}
+        <div class="slide-actions">
+          <div style="text-align:center;">
+            <button onclick="toggleLikeSlide('${v._id}')">${heartIcon}</button>
+            <div class="slide-action-count">${v.likes?.length || 0}</div>
+          </div>
+          <div style="text-align:center;">
+            <button onclick="openVideoDetail('${v._id}')">💬</button>
+            <div class="slide-action-count">${v.comments?.length || 0}</div>
+          </div>
+          <div style="text-align:center;">
+            <button onclick="shareVideo('${v.url}')">↗️</button>
+            <div class="slide-action-count">Share</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function toggleSlidePlay(videoEl) {
+  if (videoEl.paused) videoEl.play(); else videoEl.pause();
+}
+
+function setupFeedSwipe() {
+  const container = document.getElementById('video-feed-container');
+  if (!container || feedSwipeBound) return;
+  feedSwipeBound = true;
+
+  container.addEventListener('touchstart', (e) => {
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  container.addEventListener('touchend', (e) => {
+    if (touchStartY === null) return;
+    const deltaY = touchStartY - e.changedTouches[0].clientY;
+    if (Math.abs(deltaY) > 60) {
+      if (deltaY > 0) goToSlide(feedIndex + 1);
+      else goToSlide(feedIndex - 1);
+    }
+    touchStartY = null;
+  });
+
+  let wheelLock = false;
+  container.addEventListener('wheel', (e) => {
+    if (wheelLock) return;
+    wheelLock = true;
+    if (e.deltaY > 0) goToSlide(feedIndex + 1);
+    else if (e.deltaY < 0) goToSlide(feedIndex - 1);
+    setTimeout(() => { wheelLock = false; }, 600);
+  });
+}
+
+function goToSlide(index) {
+  if (index < 0 || index >= feedVideos.length) return;
+  feedIndex = index;
+
+  document.querySelectorAll('.video-slide').forEach(slide => {
+    const slideVideo = slide.querySelector('video');
+    if (parseInt(slide.dataset.index) === feedIndex) {
+      slide.classList.add('active');
+      slideVideo.currentTime = 0;
+      slideVideo.play().catch(() => {});
+    } else {
+      slide.classList.remove('active');
+      slideVideo.pause();
+    }
+  });
+
+  fetch(API_URL + '/videos/view/' + feedVideos[feedIndex]._id, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token }
+  });
+}
+
+async function toggleLikeSlide(videoId) {
   try {
     const res = await fetch(API_URL + '/videos/like/' + videoId, {
       method: 'POST',
@@ -503,9 +609,61 @@ async function likeVideoFeed(videoId) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to like video');
 
-    loadVideoFeed();
+    const video = feedVideos.find(v => v._id === videoId);
+    if (video) {
+      if (data.liked) {
+        if (!video.likes.includes(currentUser.id)) video.likes.push(currentUser.id);
+      } else {
+        video.likes = video.likes.filter(id => id !== currentUser.id);
+      }
+    }
+    renderFeedSlides();
+
   } catch (err) {
     showMessage('❌ ' + err.message);
+  }
+}
+
+async function followFromSlide(userId, videoId) {
+  if (!userId) return;
+  try {
+    const profileRes = await fetch(API_URL + '/follow/' + userId, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const profile = await profileRes.json();
+
+    const method = profile.isFollowing ? 'DELETE' : 'POST';
+    const res = await fetch(API_URL + '/follow/' + userId, {
+      method,
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to update follow status');
+
+    feedVideos.forEach(v => {
+      if (v.user?._id === userId) v.isFollowingAuthor = data.following;
+    });
+    renderFeedSlides();
+
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
+async function shareVideo(url) {
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Check out this video on LoveConnect!', url });
+    } catch (err) {
+      // user cancelled share sheet — no action needed
+    }
+  } else {
+    try {
+      await navigator.clipboard.writeText(url);
+      showMessage('🔗 Link copied to clipboard!', 'success');
+    } catch (err) {
+      showMessage('❌ Could not copy link');
+    }
   }
 }
 
@@ -515,15 +673,15 @@ async function searchUsers() {
   const input = document.getElementById('search-input');
   const q = input?.value?.trim();
   const container = document.getElementById('search-results');
-  const feed = document.getElementById('video-feed');
+  const feedContainer = document.getElementById('video-feed-container');
 
   if (!q) {
     container.innerHTML = '';
-    feed.style.display = 'block';
+    feedContainer.style.display = 'block';
     return;
   }
 
-  feed.style.display = 'none';
+  feedContainer.style.display = 'none';
   container.innerHTML = '<p>Searching...</p>';
 
   try {
@@ -589,7 +747,7 @@ async function loadPublicProfile(userId) {
       <p>${profile.bio || ''}</p>
       ${!profile.isSelf ? `
         <button onclick="toggleFollow('${profile._id}')" style="background:${profile.isFollowing ? '#eee' : '#ff4d8d'}; color:${profile.isFollowing ? '#333' : 'white'};">
-          ${profile.isFollowing ? 'Following ✓' : '+ Follow'}
+          ${profile.isFollowing ? 'Unfollow' : '+ Follow'}
         </button>
         <button onclick="openChat('${profile._id}', '${profile.name}')" style="background:#4d7cff;">💬 Message</button>
       ` : ''}
@@ -599,8 +757,8 @@ async function loadPublicProfile(userId) {
       videosContainer.innerHTML = '<p>No videos yet.</p>';
     } else {
       videosContainer.innerHTML = profile.videos.map(v => `
-        <div style="cursor:pointer; margin-bottom:15px;" onclick="openVideoDetail('${v._id}')">
-          <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;" onclick="event.stopPropagation()"></video>
+        <div style="margin-bottom:15px;">
+          <video src="${v.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px; cursor:pointer;" onclick="openVideoDetail('${v._id}')"></video>
           ${v.caption ? `<p style="font-size:13px; color:#555;">${v.caption}</p>` : ''}
         </div>
       `).join('');
@@ -634,18 +792,13 @@ async function toggleFollow(userId) {
   }
 }
 
-// ==================== VIDEO DETAIL PAGE ====================
+// ==================== VIDEO COMMENTS PANEL ====================
 
 async function openVideoDetail(videoId) {
   currentVideoId = videoId;
   hideAllScreens();
   document.getElementById('video-detail-screen').style.display = 'block';
   await loadVideoDetail(videoId);
-
-  fetch(API_URL + '/videos/view/' + videoId, {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + token }
-  });
 }
 
 function closeVideoDetail() {
@@ -670,11 +823,11 @@ async function loadVideoDetail(videoId) {
     const liked = video.likes?.includes(currentUser.id);
 
     content.innerHTML = `
-      <p class="video-author" onclick="openVideoDetailAuthor('${video.user?._id}')"><strong>${video.user?.name || 'Unknown'}</strong></p>
+      <p onclick="openVideoDetailAuthor('${video.user?._id}')" style="cursor:pointer;"><strong>${video.user?.name || 'Unknown'}</strong></p>
       <video src="${video.url}" controls crossorigin="anonymous" style="width:100%; border-radius:8px;"></video>
       ${video.caption ? `<p style="margin-top:8px;">${video.caption}</p>` : ''}
       <p style="font-size:13px; color:#888;">👁️ ${video.views || 0} views</p>
-      <button onclick="likeVideoDetail('${video._id}')" style="background:${liked ? '#ff4d8d' : '#eee'}; color:${liked ? 'white' : '#333'}; margin-top:10px;">❤️ ${video.likes?.length || 0} Likes</button>
+      <button onclick="likeVideoDetail('${video._id}')" style="background:${liked ? '#ff4d8d' : '#eee'}; color:${liked ? 'white' : '#333'}; margin-top:10px;">${liked ? '❤️' : '🤍'} ${video.likes?.length || 0} Likes</button>
     `;
 
     if (!video.comments || !video.comments.length) {
@@ -875,6 +1028,16 @@ async function loadMessages(userId) {
   }
 }
 
+function formatMessageTime(dateStr) {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return time;
+  const date = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return date + ' ' + time;
+}
+
 function renderMessages(messages) {
   const container = document.getElementById('chat-messages');
   container.innerHTML = '';
@@ -888,9 +1051,12 @@ function renderMessages(messages) {
     const senderId = msg.sender._id || msg.sender;
     const isMine = senderId === currentUser.id;
 
+    const outer = document.createElement('div');
+    outer.style.cssText = 'display:flex; flex-direction:column;' + (isMine ? ' align-items:flex-end;' : ' align-items:flex-start;');
+    outer.style.margin = '5px 0';
+
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;' + (isMine ? ' justify-content:flex-end;' : '');
-    wrap.style.margin = '5px 0';
 
     const bubble = document.createElement('div');
     bubble.style.cssText = isMine
@@ -907,7 +1073,14 @@ function renderMessages(messages) {
     }
 
     wrap.appendChild(bubble);
-    container.appendChild(wrap);
+    outer.appendChild(wrap);
+
+    const timeLabel = document.createElement('div');
+    timeLabel.style.cssText = 'font-size:11px; color:#999; margin-top:2px;';
+    timeLabel.textContent = formatMessageTime(msg.createdAt);
+    outer.appendChild(timeLabel);
+
+    container.appendChild(outer);
   });
 
   container.scrollTop = container.scrollHeight;

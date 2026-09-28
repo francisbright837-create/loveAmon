@@ -1,7 +1,7 @@
 const express = require("express");
 const Video = require("../models/Video");
 const User = require("../models/User");
-const { upload } = require("../config/cloudinary");
+const { upload, cloudinary } = require("../config/cloudinary");
 
 const router = express.Router();
 
@@ -25,7 +25,7 @@ router.post("/upload", upload.single("video"), async (req, res) => {
   }
 });
 
-// Get video feed (all videos except user's own)
+// Get video feed (all videos except user's own), with follow status per author
 router.get("/feed", async (req, res) => {
   try {
     const videos = await Video.find({ user: { $ne: req.userId } })
@@ -34,7 +34,15 @@ router.get("/feed", async (req, res) => {
       .limit(20)
       .lean();
 
-    res.json(videos);
+    const me = await User.findById(req.userId).select("following").lean();
+    const followingIds = (me?.following || []).map(id => id.toString());
+
+    const shaped = videos.map(v => ({
+      ...v,
+      isFollowingAuthor: v.user ? followingIds.includes(v.user._id.toString()) : false
+    }));
+
+    res.json(shaped);
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
@@ -53,7 +61,7 @@ router.get("/my-videos", async (req, res) => {
   }
 });
 
-// Get videos for a specific user (to view on their profile)
+// Get videos for a specific user (public profile)
 router.get("/user/:userId", async (req, res) => {
   try {
     const videos = await Video.find({ user: req.params.userId })
@@ -125,7 +133,35 @@ router.post("/view/:videoId", async (req, res) => {
   }
 });
 
-// Get single video (with populated user and comments, for the video's own page)
+// Delete a video (owner only) — also attempts to remove it from Cloudinary
+router.delete("/:videoId", async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.videoId);
+    if (!video) return res.status(404).json({ message: "Video not found" });
+
+    if (video.user.toString() !== req.userId) {
+      return res.status(403).json({ message: "You can only delete your own videos" });
+    }
+
+    try {
+      const match = video.url.match(/\/video\/upload\/(?:v\d+\/)?(.+)\.[a-zA-Z0-9]+$/);
+      if (match && match[1]) {
+        await cloudinary.uploader.destroy(match[1], { resource_type: "video" });
+      }
+    } catch (cloudErr) {
+      console.error("Cloudinary delete warning:", cloudErr.message);
+    }
+
+    await Video.findByIdAndDelete(req.params.videoId);
+
+    res.json({ message: "Video deleted" });
+  } catch (err) {
+    console.error("Delete video error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get single video (with populated user and comments)
 router.get("/:videoId", async (req, res) => {
   try {
     const video = await Video.findById(req.params.videoId)
