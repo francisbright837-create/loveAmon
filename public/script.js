@@ -19,6 +19,17 @@ let feedSwipeBound = false;
 // Map state
 let leafletMapInstance = null;
 
+// ==================== AUTH FAILURE HANDLING ====================
+
+function handleAuthFailure(status) {
+  if (status === 401) {
+    showMessage('⚠️ Your session expired. Please log in again.', 'error');
+    logout();
+    return true;
+  }
+  return false;
+}
+
 // ==================== UI HELPERS ====================
 
 function showMessage(msg, type = 'error') {
@@ -283,6 +294,7 @@ async function saveProfile() {
       body: formData
     });
 
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to save profile');
 
@@ -351,6 +363,7 @@ async function updateProfilePicture() {
       body: formData
     });
 
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to update photo');
 
@@ -378,6 +391,7 @@ async function loadMyProfile() {
     const res = await fetch(API_URL + '/profile/me', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const user = await res.json();
     if (!res.ok) throw new Error(user.message || 'Failed to load profile');
 
@@ -400,6 +414,7 @@ async function loadMyVideos() {
     const res = await fetch(API_URL + '/videos/my-videos', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const videos = await res.json();
     if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
 
@@ -430,6 +445,7 @@ async function deleteMyVideo(videoId) {
       method: 'DELETE',
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to delete video');
 
@@ -477,6 +493,7 @@ async function uploadVideo() {
       body: formData
     });
 
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Upload failed');
 
@@ -501,6 +518,7 @@ async function loadVideoFeed() {
     const res = await fetch(API_URL + '/videos/feed', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const videos = await res.json();
     if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
 
@@ -622,6 +640,7 @@ async function toggleLikeSlide(videoId) {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to like video');
 
@@ -646,6 +665,7 @@ async function followFromSlide(userId, videoId) {
     const profileRes = await fetch(API_URL + '/follow/' + userId, {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(profileRes.status)) return;
     const profile = await profileRes.json();
 
     const method = profile.isFollowing ? 'DELETE' : 'POST';
@@ -653,6 +673,7 @@ async function followFromSlide(userId, videoId) {
       method,
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to update follow status');
 
@@ -704,6 +725,7 @@ async function searchUsers() {
     const res = await fetch(API_URL + '/follow/search?q=' + encodeURIComponent(q), {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const users = await res.json();
     if (!res.ok) throw new Error(users.message || 'Search failed');
 
@@ -753,6 +775,7 @@ async function loadPublicProfile(userId) {
     const res = await fetch(API_URL + '/follow/' + userId, {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const profile = await res.json();
     if (!res.ok) throw new Error(profile.message || 'Failed to load profile');
 
@@ -790,6 +813,7 @@ async function toggleFollow(userId) {
     const profileRes = await fetch(API_URL + '/follow/' + userId, {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(profileRes.status)) return;
     const profile = await profileRes.json();
 
     const method = profile.isFollowing ? 'DELETE' : 'POST';
@@ -798,6 +822,7 @@ async function toggleFollow(userId) {
       method,
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to update follow status');
 
@@ -833,6 +858,7 @@ async function loadVideoDetail(videoId) {
     const res = await fetch(API_URL + '/videos/' + videoId, {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const video = await res.json();
     if (!res.ok) throw new Error(video.message || 'Failed to load video');
 
@@ -871,6 +897,7 @@ async function likeVideoDetail(videoId) {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to like video');
 
@@ -896,6 +923,7 @@ async function submitComment() {
       },
       body: JSON.stringify({ text })
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to post comment');
 
@@ -916,6 +944,7 @@ async function loadProfiles() {
     const res = await fetch(API_URL + '/match/profiles', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to load profiles');
 
@@ -952,6 +981,7 @@ async function likeUser(targetId, targetName) {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to like user');
 
@@ -980,6 +1010,7 @@ async function loadConversations() {
     const res = await fetch(API_URL + '/messages', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const conversations = await res.json();
     if (!res.ok) throw new Error(conversations.message || 'Failed to load conversations');
 
@@ -1029,6 +1060,7 @@ async function loadMessages(userId) {
     const res = await fetch(API_URL + '/messages/' + userId, {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const messages = await res.json();
     if (!res.ok) throw new Error(messages.message || 'Failed to load messages');
 
@@ -1124,6 +1156,7 @@ async function confirmDeleteMessage(mode) {
       method: 'DELETE',
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to delete message');
 
@@ -1152,6 +1185,7 @@ async function sendMessage() {
       },
       body: JSON.stringify({ text })
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to send message');
 
@@ -1210,6 +1244,7 @@ async function loadMapUsers() {
     const res = await fetch(API_URL + '/follow/map/users', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const users = await res.json();
     if (!res.ok) throw new Error(users.message || 'Failed to load map');
 
@@ -1285,6 +1320,7 @@ async function checkUnreadMessages() {
     const res = await fetch(API_URL + '/messages/unread/count', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
+    if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     const dot = document.getElementById('nav-msg-dot');
 
