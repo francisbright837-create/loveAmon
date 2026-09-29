@@ -16,6 +16,9 @@ let feedIndex = 0;
 let touchStartY = null;
 let feedSwipeBound = false;
 
+// Map state
+let leafletMapInstance = null;
+
 // ==================== UI HELPERS ====================
 
 function showMessage(msg, type = 'error') {
@@ -226,7 +229,8 @@ function hideAllScreens() {
   [
     'matching-screen', 'messages-screen', 'my-profile-screen',
     'upload-video-screen', 'edit-profile-screen', 'chat-screen',
-    'video-feed-screen', 'video-detail-screen', 'public-profile-screen'
+    'video-feed-screen', 'video-detail-screen', 'public-profile-screen',
+    'map-screen'
   ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -1152,6 +1156,97 @@ async function sendMessage() {
     if (!res.ok) throw new Error(data.message || 'Failed to send message');
 
     await loadMessages(currentChatUserId);
+
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
+// ==================== MAP ====================
+
+const AVATAR_COLORS = ['#ff6b6b', '#4d7cff', '#25d366', '#ffa94d', '#9775fa', '#ff8fab', '#20c997', '#f783ac'];
+const AVATAR_EMOJIS = ['🧍', '🧍‍♀️', '🕺', '💃', '🚶', '🚶‍♀️'];
+
+function buildCartoonAvatarHTML(user) {
+  const seed = parseInt(user._id.toString().slice(-6), 16);
+  const color = AVATAR_COLORS[seed % AVATAR_COLORS.length];
+  const emoji = AVATAR_EMOJIS[seed % AVATAR_EMOJIS.length];
+
+  return `
+    <div style="display:flex; flex-direction:column; align-items:center; cursor:pointer;">
+      <div style="
+        width:44px; height:44px; border-radius:50%;
+        border:3px solid ${color}; overflow:hidden;
+        background:white; display:flex; align-items:center; justify-content:center;
+        box-shadow:0 2px 6px rgba(0,0,0,0.3);
+      ">
+        ${user.profilePicture
+          ? `<img src="${user.profilePicture}" style="width:100%; height:100%; object-fit:cover;">`
+          : `<span style="font-size:22px;">${emoji}</span>`}
+      </div>
+      <div style="
+        width:22px; height:28px; margin-top:-4px;
+        background:${color}; border-radius:10px 10px 4px 4px;
+        display:flex; align-items:flex-start; justify-content:center;
+        font-size:14px; padding-top:2px;
+      ">${emoji}</div>
+    </div>
+  `;
+}
+
+function openMap() {
+  hideAllScreens();
+  document.getElementById('map-screen').style.display = 'block';
+  loadMapUsers();
+}
+
+function closeMap() {
+  document.getElementById('map-screen').style.display = 'none';
+  showTab('videos');
+}
+
+async function loadMapUsers() {
+  try {
+    const res = await fetch(API_URL + '/follow/map/users', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const users = await res.json();
+    if (!res.ok) throw new Error(users.message || 'Failed to load map');
+
+    if (!leafletMapInstance) {
+      leafletMapInstance = L.map('leaflet-map').setView([-15.7861, 35.0058], 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors',
+        maxZoom: 18
+      }).addTo(leafletMapInstance);
+    } else {
+      leafletMapInstance.eachLayer(layer => {
+        if (layer instanceof L.Marker) leafletMapInstance.removeLayer(layer);
+      });
+      leafletMapInstance.invalidateSize();
+    }
+
+    users.forEach(u => {
+      const icon = L.divIcon({
+        html: buildCartoonAvatarHTML(u),
+        className: '',
+        iconSize: [50, 70],
+        iconAnchor: [25, 70]
+      });
+
+      const marker = L.marker([u.lat, u.lng], { icon }).addTo(leafletMapInstance);
+      marker.bindPopup(`
+        <div style="text-align:center; min-width:140px;">
+          <div style="
+            background:#f0f0f0; border-radius:16px; padding:8px 12px;
+            font-size:14px; margin-bottom:8px; position:relative;
+          ">
+            💬 Talk to <strong>${u.name}</strong>?
+          </div>
+          <button onclick="openChat('${u._id}', '${u.name}')" style="padding:8px 18px; background:#ff4d8d; color:white; border:none; border-radius:16px; cursor:pointer; font-weight:600;">Yes, message them</button>
+        </div>
+      `);
+    });
 
   } catch (err) {
     showMessage('❌ ' + err.message);
