@@ -83,13 +83,15 @@ const profileRoutes = require("./routes/profile");
 const messageRoutes = require("./routes/message");
 const adminRoutes = require("./routes/admin");
 const videoRoutes = require("./routes/video");
+const followRoutes = require("./routes/follow");
 
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authRoutes);        // This creates /api/auth/register
 app.use("/api/profile", authMiddleware, profileRoutes);
 app.use("/api/match", authMiddleware, matchRoutes);
 app.use("/api/messages", authMiddleware, messageRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/videos", authMiddleware, videoRoutes);
+app.use("/api/follow", authMiddleware, followRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({
