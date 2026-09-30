@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LoveConnect</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
     body { padding-bottom: 80px; margin: 0; }
     .msg-box {
@@ -300,6 +303,8 @@
       <div class="search-bar">
         <input type="text" id="search-input" placeholder="Search users..." onkeyup="if(event.key==='Enter') searchUsers()">
         <button onclick="searchUsers()" style="width:auto; padding:10px 18px;">🔍</button>
+        <button onclick="openMap()" style="width:auto; padding:10px 18px;">🗺️</button>
+        <button onclick="openWorld()" style="width:auto; padding:10px 18px;">🌍</button>
       </div>
       <div id="search-results" style="padding:0 15px;"></div>
       <div id="video-feed-container" class="video-feed-container">
@@ -307,7 +312,7 @@
       </div>
     </div>
 
-    <!-- Comments Panel (for a video from the feed) -->
+    <!-- Comments Panel -->
     <div id="video-detail-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
       <button onclick="closeVideoDetail()" style="margin-bottom:15px;">← Back</button>
       <div id="video-detail-content"></div>
@@ -319,7 +324,31 @@
       </div>
     </div>
 
-    <!-- Public Profile Screen (viewing someone else) -->
+    <!-- Map Screen -->
+    <div id="map-screen" style="display:none;">
+      <button onclick="closeMap()" style="margin:15px;">← Back</button>
+      <div id="leaflet-map" style="width:100%; height:calc(100vh - 220px);"></div>
+    </div>
+
+    <!-- World Screen (live moving avatars) -->
+    <div id="world-screen" style="display:none;">
+      <button onclick="closeWorld()" style="margin:15px;">← Back</button>
+      <div style="text-align:center; position:relative; max-width:600px; margin:0 auto;">
+        <canvas id="world-canvas" width="600" height="400" style="background:linear-gradient(to bottom, #87ceeb 0%, #a8d8a8 60%, #7ba86b 100%); border-radius:12px; max-width:100%; touch-action:none;"></canvas>
+        <div id="world-talk-prompt" style="display:none; position:absolute; top:10px; left:50%; transform:translateX(-50%); background:white; padding:8px 16px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,0.2);"></div>
+      </div>
+      <div style="display:flex; flex-direction:column; align-items:center; margin-top:15px; gap:4px;">
+        <button onmousedown="worldMoveStart('up')" onmouseup="worldMoveStop()" ontouchstart="worldMoveStart('up')" ontouchend="worldMoveStop()" style="width:50px; padding:10px;">⬆️</button>
+        <div style="display:flex; gap:4px;">
+          <button onmousedown="worldMoveStart('left')" onmouseup="worldMoveStop()" ontouchstart="worldMoveStart('left')" ontouchend="worldMoveStop()" style="width:50px; padding:10px;">⬅️</button>
+          <button onmousedown="worldMoveStart('down')" onmouseup="worldMoveStop()" ontouchstart="worldMoveStart('down')" ontouchend="worldMoveStop()" style="width:50px; padding:10px;">⬇️</button>
+          <button onmousedown="worldMoveStart('right')" onmouseup="worldMoveStop()" ontouchstart="worldMoveStart('right')" ontouchend="worldMoveStop()" style="width:50px; padding:10px;">➡️</button>
+        </div>
+      </div>
+      <p style="text-align:center; color:#888; font-size:13px; margin-top:10px;">Use arrow keys (desktop) or the buttons above to walk. Get close to someone to chat!</p>
+    </div>
+
+    <!-- Public Profile Screen -->
     <div id="public-profile-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
       <button onclick="closePublicProfile()" style="margin-bottom:15px;">← Back</button>
       <div id="public-profile-details" style="text-align:center;"></div>
@@ -327,13 +356,13 @@
       <div id="public-profile-videos"></div>
     </div>
 
-    <!-- Messages List Screen (Inbox) -->
+    <!-- Messages List Screen -->
     <div id="messages-screen" style="display:none; padding:0 15px;">
       <h2>Your Conversations 💬</h2>
       <div id="conversations-list"></div>
     </div>
 
-    <!-- Matching / Browsing Screen (Matches) -->
+    <!-- Matching / Browsing Screen -->
     <div id="matching-screen" style="display:none; padding:0 15px;">
       <h2>Find someone special</h2>
       <div id="profiles"></div>

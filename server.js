@@ -4,6 +4,8 @@ dns.setServers(['8.8.8.8', '8.8.4.4']);
 require("dotenv").config();
 
 const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
@@ -11,6 +13,7 @@ const helmet = require("helmet");
 const mongoSanitize = require("express-mongo-sanitize");
 
 const app = express();
+const server = http.createServer(app);
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -85,7 +88,7 @@ const adminRoutes = require("./routes/admin");
 const videoRoutes = require("./routes/video");
 const followRoutes = require("./routes/follow");
 
-app.use("/api/auth", authRoutes);        // This creates /api/auth/register
+app.use("/api/auth", authRoutes);
 app.use("/api/profile", authMiddleware, profileRoutes);
 app.use("/api/match", authMiddleware, matchRoutes);
 app.use("/api/messages", authMiddleware, messageRoutes);
@@ -109,9 +112,64 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: err.message || "Something went wrong" });
 });
 
+// ==================== WORLD (socket.io) — kept intentionally lightweight ====================
+// Positions live only in memory (not the database) to avoid extra DB load.
+// Single shared room. If memory issues return on Render's free tier, this is the first thing to scale back.
+
+const io = new Server(server, {
+  cors: { origin: allowedOrigins, credentials: true }
+});
+
+const worldUsers = new Map(); // socket.id -> { userId, name, profilePicture, x, y }
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error("No token"));
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded.id;
+    next();
+  } catch (err) {
+    next(new Error("Invalid token"));
+  }
+});
+
+io.on("connection", (socket) => {
+  socket.on("world:join", ({ name, profilePicture }) => {
+    worldUsers.set(socket.id, {
+      userId: socket.userId,
+      name: name || "Someone",
+      profilePicture: profilePicture || "",
+      x: 300 + Math.floor(Math.random() * 100),
+      y: 200 + Math.floor(Math.random() * 100)
+    });
+    io.emit("world:state", Array.from(worldUsers.values()));
+  });
+
+  socket.on("world:move", ({ x, y }) => {
+    const user = worldUsers.get(socket.id);
+    if (!user) return;
+    user.x = x;
+    user.y = y;
+    socket.broadcast.emit("world:userMoved", {
+      userId: user.userId,
+      x: user.x,
+      y: user.y
+    });
+  });
+
+  socket.on("disconnect", () => {
+    const user = worldUsers.get(socket.id);
+    worldUsers.delete(socket.id);
+    if (user) {
+      io.emit("world:userLeft", { userId: user.userId });
+    }
+  });
+});
+
 const PORT = process.env.PORT || 4000;
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📁 API endpoints:`);
   console.log(`   POST /api/auth/register`);

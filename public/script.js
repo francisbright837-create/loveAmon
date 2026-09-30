@@ -10,14 +10,19 @@ let notifInterval = null;
 let lastUnreadCount = 0;
 let contextMenuMessageId = null;
 
-// Feed swipe state
 let feedVideos = [];
 let feedIndex = 0;
 let touchStartY = null;
 let feedSwipeBound = false;
 
-// Map state
 let leafletMapInstance = null;
+
+let worldSocket = null;
+let worldCtx = null;
+let worldUsers = {};
+let worldMoveInterval = null;
+const WORLD_SPEED = 4;
+const WORLD_TALK_DISTANCE = 40;
 
 // ==================== AUTH FAILURE HANDLING ====================
 
@@ -241,7 +246,7 @@ function hideAllScreens() {
     'matching-screen', 'messages-screen', 'my-profile-screen',
     'upload-video-screen', 'edit-profile-screen', 'chat-screen',
     'video-feed-screen', 'video-detail-screen', 'public-profile-screen',
-    'map-screen'
+    'map-screen', 'world-screen'
   ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -749,7 +754,7 @@ async function searchUsers() {
   }
 }
 
-// ==================== PUBLIC PROFILE (view someone else) ====================
+// ==================== PUBLIC PROFILE ====================
 
 async function openPublicProfile(userId) {
   if (!userId) return;
@@ -1288,6 +1293,156 @@ async function loadMapUsers() {
   }
 }
 
+// ==================== WORLD (live moving avatars) ====================
+
+function openWorld() {
+  hideAllScreens();
+  document.getElementById('world-screen').style.display = 'block';
+
+  const canvas = document.getElementById('world-canvas');
+  worldCtx = canvas.getContext('2d');
+
+  if (!worldSocket) {
+    worldSocket = io({ auth: { token } });
+
+    worldSocket.on('connect', () => {
+      worldSocket.emit('world:join', {
+        name: currentUser.name,
+        profilePicture: currentUser.profilePicture
+      });
+    });
+
+    worldSocket.on('world:state', (users) => {
+      worldUsers = {};
+      users.forEach(u => { worldUsers[u.userId] = u; });
+      drawWorld();
+    });
+
+    worldSocket.on('world:userMoved', ({ userId, x, y }) => {
+      if (worldUsers[userId]) {
+        worldUsers[userId].x = x;
+        worldUsers[userId].y = y;
+        drawWorld();
+      }
+    });
+
+    worldSocket.on('world:userLeft', ({ userId }) => {
+      delete worldUsers[userId];
+      drawWorld();
+    });
+  }
+
+  document.addEventListener('keydown', worldKeyHandler);
+}
+
+function closeWorld() {
+  document.getElementById('world-screen').style.display = 'none';
+  document.removeEventListener('keydown', worldKeyHandler);
+  worldMoveStop();
+  showTab('videos');
+}
+
+function worldKeyHandler(e) {
+  const me = worldUsers[currentUser.id];
+  if (!me) return;
+  let moved = false;
+
+  if (e.key === 'ArrowUp') { me.y = Math.max(20, me.y - WORLD_SPEED); moved = true; }
+  else if (e.key === 'ArrowDown') { me.y = Math.min(380, me.y + WORLD_SPEED); moved = true; }
+  else if (e.key === 'ArrowLeft') { me.x = Math.max(20, me.x - WORLD_SPEED); moved = true; }
+  else if (e.key === 'ArrowRight') { me.x = Math.min(580, me.x + WORLD_SPEED); moved = true; }
+
+  if (moved) {
+    drawWorld();
+    worldSocket.emit('world:move', { x: me.x, y: me.y });
+    checkWorldProximity();
+  }
+}
+
+function worldMoveStart(direction) {
+  if (worldMoveInterval) return;
+  worldMoveInterval = setInterval(() => {
+    const me = worldUsers[currentUser.id];
+    if (!me) return;
+
+    if (direction === 'up') me.y = Math.max(20, me.y - WORLD_SPEED);
+    if (direction === 'down') me.y = Math.min(380, me.y + WORLD_SPEED);
+    if (direction === 'left') me.x = Math.max(20, me.x - WORLD_SPEED);
+    if (direction === 'right') me.x = Math.min(580, me.x + WORLD_SPEED);
+
+    drawWorld();
+    worldSocket.emit('world:move', { x: me.x, y: me.y });
+    checkWorldProximity();
+  }, 80);
+}
+
+function worldMoveStop() {
+  if (worldMoveInterval) {
+    clearInterval(worldMoveInterval);
+    worldMoveInterval = null;
+  }
+}
+
+function checkWorldProximity() {
+  const me = worldUsers[currentUser.id];
+  const prompt = document.getElementById('world-talk-prompt');
+  if (!me) return;
+
+  let nearest = null;
+  let nearestDist = Infinity;
+
+  Object.entries(worldUsers).forEach(([uid, u]) => {
+    if (uid === currentUser.id) return;
+    const dist = Math.hypot(u.x - me.x, u.y - me.y);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearest = { uid, ...u };
+    }
+  });
+
+  if (nearest && nearestDist < WORLD_TALK_DISTANCE) {
+    prompt.style.display = 'block';
+    prompt.innerHTML = `💬 <strong>${nearest.name}</strong> is nearby — <button onclick="openChat('${nearest.uid}', '${nearest.name}')" style="width:auto; padding:4px 10px; margin-left:6px;">Talk</button>`;
+  } else {
+    prompt.style.display = 'none';
+  }
+}
+
+function drawWorld() {
+  if (!worldCtx) return;
+  worldCtx.clearRect(0, 0, 600, 400);
+
+  Object.entries(worldUsers).forEach(([uid, u]) => {
+    const isMe = uid === currentUser.id;
+    worldCtx.beginPath();
+    worldCtx.arc(u.x, u.y, 18, 0, Math.PI * 2);
+    worldCtx.fillStyle = isMe ? '#ff4d8d' : '#4d7cff';
+    worldCtx.fill();
+    worldCtx.strokeStyle = 'white';
+    worldCtx.lineWidth = 3;
+    worldCtx.stroke();
+
+    if (u.profilePicture) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = u.profilePicture;
+      img.onload = () => {
+        worldCtx.save();
+        worldCtx.beginPath();
+        worldCtx.arc(u.x, u.y, 15, 0, Math.PI * 2);
+        worldCtx.clip();
+        worldCtx.drawImage(img, u.x - 15, u.y - 15, 30, 30);
+        worldCtx.restore();
+      };
+    }
+
+    worldCtx.fillStyle = '#333';
+    worldCtx.font = '12px Arial';
+    worldCtx.textAlign = 'center';
+    worldCtx.fillText(u.name, u.x, u.y + 32);
+  });
+}
+
 // ==================== NOTIFICATIONS ====================
 
 function requestNotificationPermission() {
@@ -1352,6 +1507,11 @@ function logout() {
   currentUser = null;
 
   stopNotifPolling();
+
+  if (worldSocket) {
+    worldSocket.disconnect();
+    worldSocket = null;
+  }
 
   document.getElementById('auth-section').style.display = 'block';
   document.getElementById('app').style.display = 'none';
