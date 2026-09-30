@@ -1295,84 +1295,179 @@ async function loadMapUsers() {
 
 // ==================== WORLD (live moving avatars) ====================
 
+const WORLD_W = 600;
+const WORLD_H = 400;
+const WORLD_PAD = 24; // avatar centre can't go closer than this to the edge (avatar radius is 18)
+
+const WORLD_ROOMS = {
+  park: {
+    label: '🌳 Park',
+    bg: 'linear-gradient(to bottom, #87ceeb 0%, #a8d8a8 60%, #7ba86b 100%)',
+    decor: [['🌳', 70, 110], ['🌳', 530, 90], ['🌷', 300, 335], ['🌷', 150, 300], ['🌷', 470, 310]]
+  },
+  cafe: {
+    label: '☕ Café',
+    bg: 'linear-gradient(to bottom, #f6e6d0 0%, #e2c39b 55%, #b98a5e 100%)',
+    decor: [['☕', 90, 90], ['🌿', 525, 80], ['🥐', 300, 90], ['🍰', 480, 325], ['☕', 110, 325]]
+  },
+  beach: {
+    label: '🏖️ Beach',
+    bg: 'linear-gradient(to bottom, #7fd6f5 0%, #4fb6e0 30%, #f3e2b3 45%, #ecd08f 100%)',
+    decor: [['🌴', 80, 200], ['⛱️', 500, 260], ['🐚', 300, 345], ['🌴', 540, 190], ['🦀', 170, 320]]
+  }
+};
+
+const WORLD_EMOTES = { heart: '❤️', wave: '👋', dance: '💃' };
+const WORLD_EMOTE_MS = 2500;
+const WORLD_BUBBLE_MS = 5000;
+const WORLD_TRAIL_MS = 700;
+
+let worldRoom = 'park';
+let worldAnimFrame = null;
+const worldImages = {}; // url -> { img, ok }
+
+function isWorldOpen() {
+  return document.getElementById('world-screen').style.display === 'block';
+}
+
+function joinWorld() {
+  if (!worldSocket || !isWorldOpen()) return;
+  worldSocket.emit('world:join', {
+    name: currentUser.name,
+    profilePicture: currentUser.profilePicture
+  });
+}
+
 function openWorld() {
   hideAllScreens();
   document.getElementById('world-screen').style.display = 'block';
 
   const canvas = document.getElementById('world-canvas');
   worldCtx = canvas.getContext('2d');
+  applyWorldRoomStyle();
 
   if (!worldSocket) {
     worldSocket = io({ auth: { token } });
 
-    worldSocket.on('connect', () => {
-      worldSocket.emit('world:join', {
-        name: currentUser.name,
-        profilePicture: currentUser.profilePicture
-      });
-    });
+    worldSocket.on('connect', joinWorld);
 
-    worldSocket.on('world:state', (users) => {
-      worldUsers = {};
-      users.forEach(u => { worldUsers[u.userId] = u; });
-      drawWorld();
+    // Full list of everyone in MY room (sent on join, room change, and when someone arrives)
+    worldSocket.on('world:state', ({ room, users }) => {
+      const roomChanged = room !== worldRoom;
+      worldRoom = room;
+      applyWorldRoomStyle();
+
+      const next = {};
+      users.forEach(u => {
+        // keep local animation fields (smoothed position, trail, bubble...) for people we already know
+        const old = !roomChanged ? worldUsers[u.userId] : null;
+        next[u.userId] = Object.assign(old || { dx: u.x, dy: u.y, trail: [], phase: 0 }, u);
+      });
+      worldUsers = next;
+      checkWorldProximity();
     });
 
     worldSocket.on('world:userMoved', ({ userId, x, y }) => {
-      if (worldUsers[userId]) {
-        worldUsers[userId].x = x;
-        worldUsers[userId].y = y;
-        drawWorld();
-      }
+      const u = worldUsers[userId];
+      if (u) { u.x = x; u.y = y; }
     });
 
     worldSocket.on('world:userLeft', ({ userId }) => {
       delete worldUsers[userId];
-      drawWorld();
+      checkWorldProximity();
     });
+
+    worldSocket.on('world:emote', ({ userId, emote }) => {
+      const u = worldUsers[userId];
+      if (u && WORLD_EMOTES[emote]) u.emote = { type: emote, start: performance.now() };
+    });
+
+    worldSocket.on('world:chat', ({ userId, text }) => {
+      const u = worldUsers[userId];
+      if (u) u.bubble = { text: String(text), until: performance.now() + WORLD_BUBBLE_MS };
+    });
+  } else if (worldSocket.connected) {
+    joinWorld();
   }
 
   document.addEventListener('keydown', worldKeyHandler);
+  startWorldLoop();
 }
 
 function closeWorld() {
   document.getElementById('world-screen').style.display = 'none';
   document.removeEventListener('keydown', worldKeyHandler);
   worldMoveStop();
+  stopWorldLoop();
+
+  // tell the server we left so our avatar doesn't stay standing there (it also saves our position)
+  if (worldSocket && worldSocket.connected) worldSocket.emit('world:leave');
+  worldUsers = {};
+
   showTab('videos');
 }
 
-function worldKeyHandler(e) {
+// ---------- rooms ----------
+
+function switchWorldRoom(room) {
+  if (!worldSocket || room === worldRoom || !WORLD_ROOMS[room]) return;
+  worldSocket.emit('world:switchRoom', { room });
+}
+
+function applyWorldRoomStyle() {
+  const canvas = document.getElementById('world-canvas');
+  const room = WORLD_ROOMS[worldRoom] || WORLD_ROOMS.park;
+  if (canvas) canvas.style.background = room.bg;
+
+  document.querySelectorAll('.world-room-btn').forEach(btn => {
+    const active = btn.dataset.room === worldRoom;
+    btn.style.background = active ? '#ff4d8d' : '#eee';
+    btn.style.color = active ? 'white' : '#333';
+  });
+}
+
+// ---------- movement ----------
+
+function worldStep(dx, dy) {
   const me = worldUsers[currentUser.id];
-  if (!me) return;
-  let moved = false;
+  if (!me || !worldSocket) return;
 
-  if (e.key === 'ArrowUp') { me.y = Math.max(20, me.y - WORLD_SPEED); moved = true; }
-  else if (e.key === 'ArrowDown') { me.y = Math.min(380, me.y + WORLD_SPEED); moved = true; }
-  else if (e.key === 'ArrowLeft') { me.x = Math.max(20, me.x - WORLD_SPEED); moved = true; }
-  else if (e.key === 'ArrowRight') { me.x = Math.min(580, me.x + WORLD_SPEED); moved = true; }
+  const nx = Math.min(WORLD_W - WORLD_PAD, Math.max(WORLD_PAD, me.x + dx));
+  const ny = Math.min(WORLD_H - WORLD_PAD, Math.max(WORLD_PAD, me.y + dy));
+  if (nx === me.x && ny === me.y) return; // pushing against the wall
 
-  if (moved) {
-    drawWorld();
-    worldSocket.emit('world:move', { x: me.x, y: me.y });
-    checkWorldProximity();
-  }
+  me.x = nx;
+  me.y = ny;
+  worldSocket.emit('world:move', { x: me.x, y: me.y });
+  checkWorldProximity();
+}
+
+function worldKeyHandler(e) {
+  // don't walk / trigger emotes while typing in the chat-bubble box
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return;
+
+  const s = WORLD_SPEED;
+  if (e.key === 'ArrowUp') worldStep(0, -s);
+  else if (e.key === 'ArrowDown') worldStep(0, s);
+  else if (e.key === 'ArrowLeft') worldStep(-s, 0);
+  else if (e.key === 'ArrowRight') worldStep(s, 0);
+  else if (e.key === '1') sendWorldEmote('heart');
+  else if (e.key === '2') sendWorldEmote('wave');
+  else if (e.key === '3') sendWorldEmote('dance');
+  else return;
+
+  e.preventDefault(); // stop arrow keys scrolling the page
 }
 
 function worldMoveStart(direction) {
   if (worldMoveInterval) return;
   worldMoveInterval = setInterval(() => {
-    const me = worldUsers[currentUser.id];
-    if (!me) return;
-
-    if (direction === 'up') me.y = Math.max(20, me.y - WORLD_SPEED);
-    if (direction === 'down') me.y = Math.min(380, me.y + WORLD_SPEED);
-    if (direction === 'left') me.x = Math.max(20, me.x - WORLD_SPEED);
-    if (direction === 'right') me.x = Math.min(580, me.x + WORLD_SPEED);
-
-    drawWorld();
-    worldSocket.emit('world:move', { x: me.x, y: me.y });
-    checkWorldProximity();
+    const s = WORLD_SPEED;
+    if (direction === 'up') worldStep(0, -s);
+    if (direction === 'down') worldStep(0, s);
+    if (direction === 'left') worldStep(-s, 0);
+    if (direction === 'right') worldStep(s, 0);
   }, 80);
 }
 
@@ -1382,6 +1477,23 @@ function worldMoveStop() {
     worldMoveInterval = null;
   }
 }
+
+// ---------- emotes & chat bubbles ----------
+
+function sendWorldEmote(emote) {
+  if (!worldSocket || !WORLD_EMOTES[emote]) return;
+  worldSocket.emit('world:emote', { emote });
+}
+
+function sendWorldChat() {
+  const input = document.getElementById('world-chat-input');
+  const text = input?.value?.trim();
+  if (!text || !worldSocket) return;
+  worldSocket.emit('world:chat', { text });
+  input.value = '';
+}
+
+// ---------- proximity (unchanged) ----------
 
 function checkWorldProximity() {
   const me = worldUsers[currentUser.id];
@@ -1408,38 +1520,243 @@ function checkWorldProximity() {
   }
 }
 
+// ---------- drawing ----------
+
+function startWorldLoop() {
+  if (worldAnimFrame) return;
+  const tick = () => {
+    drawWorld();
+    worldAnimFrame = requestAnimationFrame(tick);
+  };
+  worldAnimFrame = requestAnimationFrame(tick);
+}
+
+function stopWorldLoop() {
+  if (worldAnimFrame) cancelAnimationFrame(worldAnimFrame);
+  worldAnimFrame = null;
+}
+
+function getWorldImage(url) {
+  let entry = worldImages[url];
+  if (!entry) {
+    const img = new Image();
+    entry = { img, ok: false };
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { entry.ok = true; };
+    img.src = url;
+    worldImages[url] = entry;
+  }
+  return entry.ok ? entry.img : null;
+}
+
+function worldRoundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function worldWrapText(ctx, text, maxWidth, maxLines) {
+  const lines = [];
+  let line = '';
+  const push = () => { if (line) lines.push(line); line = ''; };
+
+  text.split(' ').forEach(word => {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width <= maxWidth) { line = test; return; }
+    push();
+    // a single very long word: break it by characters
+    if (ctx.measureText(word).width > maxWidth) {
+      for (const ch of word) {
+        if (ctx.measureText(line + ch).width > maxWidth) push();
+        line += ch;
+      }
+    } else {
+      line = word;
+    }
+  });
+  push();
+  return lines.slice(0, maxLines);
+}
+
+function drawWorldBubble(ctx, u, now) {
+  const remaining = u.bubble.until - now;
+  if (remaining <= 0) { u.bubble = null; return; }
+
+  ctx.font = '12px Arial';
+  const lines = worldWrapText(ctx, u.bubble.text, 130, 4);
+  const lineH = 15;
+  const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 16;
+  const h = lines.length * lineH + 10;
+  const bx = Math.min(WORLD_W - 4 - w, Math.max(4, u.dx - w / 2));
+  const by = Math.max(4, u.dy - 26 - h);
+
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, remaining / 500); // fade out in the last 0.5s
+  ctx.fillStyle = 'white';
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 1;
+  worldRoundRect(ctx, bx, by, w, h, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  // little tail pointing at the avatar
+  ctx.beginPath();
+  ctx.moveTo(u.dx - 5, by + h - 0.5);
+  ctx.lineTo(u.dx + 5, by + h - 0.5);
+  ctx.lineTo(u.dx, by + h + 6);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#222';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  lines.forEach((l, i) => ctx.fillText(l, bx + w / 2, by + 5 + lineH / 2 + i * lineH));
+  ctx.restore();
+}
+
+function drawWorldEmote(ctx, u, now) {
+  const age = now - u.emote.start;
+  if (age > WORLD_EMOTE_MS) { u.emote = null; return; }
+
+  const emoji = WORLD_EMOTES[u.emote.type];
+  const side = u.dx > WORLD_W - 70 ? -28 : 28;
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '24px serif';
+
+  if (u.emote.type === 'heart') {
+    // three hearts floating up one after another
+    for (let i = 0; i < 3; i++) {
+      const t = (age - i * 250) / 1800;
+      if (t < 0 || t > 1) continue;
+      ctx.globalAlpha = 1 - t * t;
+      ctx.fillText(emoji, u.dx + (i - 1) * 14 + Math.sin(t * 6) * 4, u.dy - 30 - t * 40);
+    }
+  } else {
+    const t = age / WORLD_EMOTE_MS;
+    ctx.globalAlpha = 1 - t * t * t;
+    const wiggle = u.emote.type === 'wave' ? Math.sin(now / 90) * 6 : 0;
+    ctx.fillText(emoji, u.dx + side + wiggle, u.dy - 20 - t * 14);
+  }
+  ctx.restore();
+}
+
 function drawWorld() {
   if (!worldCtx) return;
-  worldCtx.clearRect(0, 0, 600, 400);
+  const ctx = worldCtx;
+  const now = performance.now();
+  const users = Object.values(worldUsers);
 
-  Object.entries(worldUsers).forEach(([uid, u]) => {
-    const isMe = uid === currentUser.id;
-    worldCtx.beginPath();
-    worldCtx.arc(u.x, u.y, 18, 0, Math.PI * 2);
-    worldCtx.fillStyle = isMe ? '#ff4d8d' : '#4d7cff';
-    worldCtx.fill();
-    worldCtx.strokeStyle = 'white';
-    worldCtx.lineWidth = 3;
-    worldCtx.stroke();
+  ctx.clearRect(0, 0, WORLD_W, WORLD_H);
 
-    if (u.profilePicture) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = u.profilePicture;
-      img.onload = () => {
-        worldCtx.save();
-        worldCtx.beginPath();
-        worldCtx.arc(u.x, u.y, 15, 0, Math.PI * 2);
-        worldCtx.clip();
-        worldCtx.drawImage(img, u.x - 15, u.y - 15, 30, 30);
-        worldCtx.restore();
-      };
+  // scenery for this room
+  const room = WORLD_ROOMS[worldRoom] || WORLD_ROOMS.park;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '30px serif';
+  room.decor.forEach(([emoji, x, y]) => ctx.fillText(emoji, x, y));
+
+  // boundary wall (avatars can't cross this)
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  worldRoundRect(ctx, 3, 3, WORLD_W - 6, WORLD_H - 6, 14);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+  worldRoundRect(ctx, 6, 6, WORLD_W - 12, WORLD_H - 12, 12);
+  ctx.stroke();
+
+  // update animation state: glide towards the real position, detect walking, record trail
+  users.forEach(u => {
+    if (u.dx === undefined) { u.dx = u.x; u.dy = u.y; }
+    if (!u.trail) u.trail = [];
+    u.dx += (u.x - u.dx) * 0.35;
+    u.dy += (u.y - u.dy) * 0.35;
+    u.moving = Math.hypot(u.x - u.dx, u.y - u.dy) > 0.6;
+
+    if (u.moving) {
+      u.phase = (u.phase || 0) + 0.4;
+      const last = u.trail[u.trail.length - 1];
+      if (!last || Math.hypot(last.x - u.dx, last.y - u.dy) > 7) {
+        u.trail.push({ x: u.dx, y: u.dy, t: now });
+      }
+    }
+    while (u.trail.length && now - u.trail[0].t > WORLD_TRAIL_MS) u.trail.shift();
+  });
+
+  // fading trail
+  users.forEach(u => {
+    const isMe = u.userId === currentUser.id;
+    u.trail.forEach(p => {
+      const life = 1 - (now - p.t) / WORLD_TRAIL_MS;
+      ctx.globalAlpha = Math.max(0, life) * 0.35;
+      ctx.fillStyle = isMe ? '#ff4d8d' : '#4d7cff';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y + 12, 8 * life + 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  });
+  ctx.globalAlpha = 1;
+
+  // avatars, back-to-front so lower ones overlap higher ones
+  users.sort((a, b) => a.dy - b.dy).forEach(u => {
+    const isMe = u.userId === currentUser.id;
+    const dancing = u.emote && u.emote.type === 'dance';
+
+    let bob = 0;
+    let tilt = 0;
+    if (dancing) {
+      bob = -Math.abs(Math.sin(now / 120)) * 8;
+      tilt = Math.sin(now / 90) * 0.35;
+    } else if (u.moving) {
+      bob = -Math.abs(Math.sin(u.phase)) * 4;
+      tilt = Math.sin(u.phase) * 0.15;
     }
 
-    worldCtx.fillStyle = '#333';
-    worldCtx.font = '12px Arial';
-    worldCtx.textAlign = 'center';
-    worldCtx.fillText(u.name, u.x, u.y + 32);
+    // ground shadow (shrinks as the avatar hops)
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.beginPath();
+    ctx.ellipse(u.dx, u.dy + 19, 15 + bob * 0.4, 5 + bob * 0.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.translate(u.dx, u.dy + bob);
+    ctx.rotate(tilt);
+
+    ctx.beginPath();
+    ctx.arc(0, 0, 18, 0, Math.PI * 2);
+    ctx.fillStyle = isMe ? '#ff4d8d' : '#4d7cff';
+    ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    const img = u.profilePicture ? getWorldImage(u.profilePicture) : null;
+    if (img) {
+      ctx.beginPath();
+      ctx.arc(0, 0, 15, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, -15, -15, 30, 30);
+    }
+    ctx.restore();
+
+    ctx.fillStyle = '#333';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(u.name, u.dx, u.dy + 36);
+  });
+
+  // bubbles and emotes on top of everybody
+  users.forEach(u => {
+    if (u.bubble) drawWorldBubble(ctx, u, now);
+    if (u.emote) drawWorldEmote(ctx, u, now);
   });
 }
 
