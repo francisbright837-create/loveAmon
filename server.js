@@ -16,16 +16,18 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(helmet({
+  // ✅ lets map tile servers see which site is asking (OpenStreetMap blocks requests without it)
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      "script-src": ["'self'", "https://cdnjs.cloudflare.com"],          // ✅ allows the Leaflet map library
+      "script-src": ["'self'", "https://cdnjs.cloudflare.com"],
       "script-src-attr": ["'unsafe-inline'"],
       "img-src": [
         "'self'",
         "data:",
         "https://res.cloudinary.com",
-        "https://*.tile.openstreetmap.org",                              // ✅ allows the map background tiles
+        "https://*.tile.openstreetmap.org",
         "https://cdnjs.cloudflare.com"
       ],
       "media-src": ["'self'", "https://res.cloudinary.com"],
