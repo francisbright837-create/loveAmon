@@ -104,6 +104,11 @@ app.get("/health", (req, res) => {
   });
 });
 
+// ✅ NEW: unknown /api routes answer with JSON instead of an HTML "Cannot GET" page
+app.use("/api", (req, res) => {
+  res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` });
+});
+
 app.use((err, req, res, next) => {
   console.error("Server Error:", err);
   if (err.message === "Not allowed by CORS") {

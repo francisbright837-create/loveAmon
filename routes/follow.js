@@ -25,6 +25,44 @@ router.get("/search", async (req, res) => {
   }
 });
 
+// ✅ NEW: users shown on the map (this route was missing, which caused the HTML "Cannot GET" page)
+const MAP_CENTER = { lat: -15.7861, lng: 35.0058 }; // Blantyre
+
+// Until real locations are saved, give each user a stable spot near the centre
+function spreadAroundCenter(id) {
+  const n = parseInt(id.toString().slice(-8), 16);
+  const angle = (n % 360) * Math.PI / 180;
+  const dist = 0.005 + (Math.floor(n / 8) % 100) / 100 * 0.04; // roughly 0.5-4.5 km
+  return {
+    lat: MAP_CENTER.lat + Math.sin(angle) * dist,
+    lng: MAP_CENTER.lng + Math.cos(angle) * dist
+  };
+}
+
+router.get("/map/users", async (req, res) => {
+  try {
+    const users = await User.find({ _id: { $ne: req.userId } })
+      .select("name profilePicture location")
+      .limit(100)
+      .lean();
+
+    res.json(users.map(u => {
+      const hasReal = Number.isFinite(u.location?.lat) && Number.isFinite(u.location?.lng);
+      const pos = hasReal ? u.location : spreadAroundCenter(u._id);
+      return {
+        _id: u._id,
+        name: u.name,
+        profilePicture: u.profilePicture || "",
+        lat: pos.lat,
+        lng: pos.lng
+      };
+    }));
+  } catch (err) {
+    console.error("Map users error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 // Get a public profile (with follow status, followers/following counts, videos)
 router.get("/:userId", async (req, res) => {
   try {
