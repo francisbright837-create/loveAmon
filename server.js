@@ -19,8 +19,15 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "script-src": ["'self'", "https://cdnjs.cloudflare.com"],          // ✅ allows the Leaflet map library
       "script-src-attr": ["'unsafe-inline'"],
-      "img-src": ["'self'", "data:", "https://res.cloudinary.com"],
+      "img-src": [
+        "'self'",
+        "data:",
+        "https://res.cloudinary.com",
+        "https://*.tile.openstreetmap.org",                              // ✅ allows the map background tiles
+        "https://cdnjs.cloudflare.com"
+      ],
       "media-src": ["'self'", "https://res.cloudinary.com"],
     },
   },
@@ -104,7 +111,7 @@ app.get("/health", (req, res) => {
   });
 });
 
-// ✅ NEW: unknown /api routes answer with JSON instead of an HTML "Cannot GET" page
+// Unknown /api routes answer with JSON instead of an HTML "Cannot GET" page
 app.use("/api", (req, res) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` });
 });
