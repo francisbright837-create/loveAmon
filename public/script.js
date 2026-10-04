@@ -1413,6 +1413,7 @@ function openWorld() {
 
 // shared clean-up when leaving the world for any reason
 function leaveWorld() {
+  closeWorldChat();
   document.getElementById('world-screen').style.display = 'none';
   stopWorldLoop();
   worldTarget = null;
@@ -1490,10 +1491,18 @@ function setupWorldPointer() {
 
   // tap/click = walk there; hold and drag = keep steering
   canvas.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    // tapping another character opens a chat with them (you stay in the game)
+    const r = canvas.getBoundingClientRect();
+    const px = (e.clientX - r.left) * WORLD_W / r.width;
+    const py = (e.clientY - r.top) * WORLD_H / r.height;
+    const hit = Object.values(worldUsers).find(u =>
+      u.userId !== currentUser.id && Math.hypot(u.dx - px, u.dy - py) < 26);
+    if (hit) { openWorldChat(hit.userId, hit.name); return; }
+
     worldPointerDown = true;
     if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
     worldPointToTarget(e);
-    e.preventDefault();
   });
   canvas.addEventListener('pointermove', e => {
     if (worldPointerDown) worldPointToTarget(e);
@@ -1576,12 +1585,91 @@ function checkWorldProximity() {
     const btn = document.createElement('button');
     btn.textContent = 'Talk';
     btn.style.cssText = 'width:auto; padding:4px 10px; margin:0 0 0 8px; display:inline-block;';
-    btn.onclick = () => { leaveWorld(); openChat(nearest.uid, nearest.name); };
+    btn.onclick = () => openWorldChat(nearest.uid, nearest.name);
     prompt.append(label, btn);
     prompt.style.display = 'block';
   } else {
     worldPromptUid = null;
     prompt.style.display = 'none';
+  }
+}
+
+// ---------- in-game private chat (stays inside the world) ----------
+
+let worldChatUid = null;
+let worldChatTimer = null;
+
+function worldAuthHeaders(json) {
+  const h = { 'Authorization': 'Bearer ' + token };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
+async function openWorldChat(uid, name) {
+  worldChatUid = uid;
+  document.getElementById('wchat-title').textContent = '💬 ' + name;
+  document.getElementById('wchat-list').textContent = '';
+  document.getElementById('wchat-panel').style.display = 'flex';
+  await loadWorldChat(true);
+  if (worldChatTimer) clearInterval(worldChatTimer);
+  worldChatTimer = setInterval(() => loadWorldChat(false), 3000); // pick up replies
+  const input = document.getElementById('wchat-input');
+  if (input) input.focus();
+}
+
+function closeWorldChat() {
+  worldChatUid = null;
+  if (worldChatTimer) clearInterval(worldChatTimer);
+  worldChatTimer = null;
+  const panel = document.getElementById('wchat-panel');
+  if (panel) panel.style.display = 'none';
+}
+
+async function loadWorldChat(forceScroll) {
+  const uid = worldChatUid;
+  if (!uid) return;
+  try {
+    const res = await fetch(API_URL + '/messages/' + uid, { headers: worldAuthHeaders(false) });
+    if (handleAuthFailure(res.status)) return;
+    const msgs = await res.json();
+    if (!res.ok || uid !== worldChatUid) return;
+
+    const box = document.getElementById('wchat-list');
+    const atBottom = forceScroll || box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    box.textContent = '';
+    msgs.forEach(m => {
+      const mine = String((m.sender && m.sender._id) || m.sender) === String(currentUser.id);
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; margin:4px 0; justify-content:' + (mine ? 'flex-end' : 'flex-start') + ';';
+      const bub = document.createElement('div');
+      bub.textContent = m.text;
+      bub.style.cssText = 'max-width:75%; padding:8px 12px; border-radius:14px; font-size:14px; word-break:break-word; text-align:left; ' +
+        (mine ? 'background:#ff4d8d; color:white;' : 'background:#e9e9ee; color:#222;');
+      row.appendChild(bub);
+      box.appendChild(row);
+    });
+    if (atBottom) box.scrollTop = box.scrollHeight;
+
+    fetch(API_URL + '/messages/read/' + uid, { method: 'PUT', headers: worldAuthHeaders(false) }).catch(() => {});
+  } catch (err) { /* try again on the next poll */ }
+}
+
+async function sendWorldDirect() {
+  const input = document.getElementById('wchat-input');
+  const text = input?.value?.trim();
+  if (!text || !worldChatUid) return;
+  input.value = '';
+  try {
+    const res = await fetch(API_URL + '/messages/' + worldChatUid, {
+      method: 'POST',
+      headers: worldAuthHeaders(true),
+      body: JSON.stringify({ text })
+    });
+    if (handleAuthFailure(res.status)) return;
+    if (!res.ok) throw new Error('Could not send');
+    await loadWorldChat(true);
+  } catch (err) {
+    showMessage('❌ ' + err.message);
   }
 }
 
