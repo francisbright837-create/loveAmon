@@ -1296,38 +1296,45 @@ async function loadMapUsers() {
 // ==================== WORLD (live moving avatars) ====================
 
 const WORLD_W = 600;
-const WORLD_H = 400;
-const WORLD_PAD = 24; // avatar centre can't go closer than this to the edge (avatar radius is 18)
+const WORLD_H = 600;   // must match server.js
+const WORLD_PAD = 24;  // avatar centre can't go closer than this to the edge
 
 const WORLD_ROOMS = {
   park: {
     label: '🌳 Park',
     bg: 'linear-gradient(to bottom, #87ceeb 0%, #a8d8a8 60%, #7ba86b 100%)',
-    decor: [['🌳', 70, 110], ['🌳', 530, 90], ['🌷', 300, 335], ['🌷', 150, 300], ['🌷', 470, 310]]
+    decor: [['🌳', 70, 165], ['🌳', 530, 135], ['🌷', 300, 500], ['🌷', 150, 450], ['🌷', 470, 465]]
   },
   cafe: {
     label: '☕ Café',
     bg: 'linear-gradient(to bottom, #f6e6d0 0%, #e2c39b 55%, #b98a5e 100%)',
-    decor: [['☕', 90, 90], ['🌿', 525, 80], ['🥐', 300, 90], ['🍰', 480, 325], ['☕', 110, 325]]
+    decor: [['☕', 90, 135], ['🌿', 525, 120], ['🥐', 300, 135], ['🍰', 480, 490], ['☕', 110, 490]]
   },
   beach: {
     label: '🏖️ Beach',
     bg: 'linear-gradient(to bottom, #7fd6f5 0%, #4fb6e0 30%, #f3e2b3 45%, #ecd08f 100%)',
-    decor: [['🌴', 80, 200], ['⛱️', 500, 260], ['🐚', 300, 345], ['🌴', 540, 190], ['🦀', 170, 320]]
+    decor: [['🌴', 80, 300], ['⛱️', 500, 390], ['🐚', 300, 520], ['🌴', 540, 285], ['🦀', 170, 480]]
   }
 };
 
 const WORLD_EMOTES = { heart: '❤️', wave: '👋', dance: '💃' };
 const WORLD_EMOTE_MS = 2500;
-const WORLD_BUBBLE_MS = 5000;
+const WORLD_BUBBLE_MS = 30000;   // chat bubbles stay 30 seconds (or until someone replies)
 const WORLD_TRAIL_MS = 700;
+const WORLD_WALK_SPEED = 190;    // pixels per second
 
 let worldRoom = 'park';
 let worldAnimFrame = null;
 const worldImages = {}; // url -> { img, ok }
+let worldScale = 1;
+let worldTarget = null;          // where my avatar is walking to
+let worldPointerDown = false;
+let worldLastMoveSent = 0;
+let worldLastFrame = 0;
+let worldPromptUid = null;
 
 function isWorldOpen() {
-  return document.getElementById('world-screen').style.display === 'block';
+  return document.getElementById('world-screen').style.display !== 'none';
 }
 
 function joinWorld() {
@@ -1340,11 +1347,15 @@ function joinWorld() {
 
 function openWorld() {
   hideAllScreens();
-  document.getElementById('world-screen').style.display = 'block';
+  document.getElementById('world-screen').style.display = 'flex';
 
   const canvas = document.getElementById('world-canvas');
   worldCtx = canvas.getContext('2d');
+  worldTarget = null;
+  worldLastFrame = 0;
   applyWorldRoomStyle();
+  fitWorldCanvas();
+  setupWorldPointer();
 
   if (!worldSocket) {
     worldSocket = io({ auth: { token } });
@@ -1355,13 +1366,17 @@ function openWorld() {
     worldSocket.on('world:state', ({ room, users }) => {
       const roomChanged = room !== worldRoom;
       worldRoom = room;
+      if (roomChanged) worldTarget = null;
       applyWorldRoomStyle();
 
       const next = {};
       users.forEach(u => {
-        // keep local animation fields (smoothed position, trail, bubble...) for people we already know
         const old = !roomChanged ? worldUsers[u.userId] : null;
-        next[u.userId] = Object.assign(old || { dx: u.x, dy: u.y, trail: [], phase: 0 }, u);
+        // while I'm walking, trust my own position over the server's older copy
+        const keep = (u.userId === currentUser.id && old && worldTarget) ? { x: old.x, y: old.y } : null;
+        const merged = Object.assign(old || { dx: u.x, dy: u.y, trail: [], phase: 0 }, u);
+        if (keep) Object.assign(merged, keep);
+        next[u.userId] = merged;
       });
       worldUsers = next;
       checkWorldProximity();
@@ -1384,28 +1399,57 @@ function openWorld() {
 
     worldSocket.on('world:chat', ({ userId, text }) => {
       const u = worldUsers[userId];
-      if (u) u.bubble = { text: String(text), until: performance.now() + WORLD_BUBBLE_MS };
+      if (!u) return;
+      // a reply from someone else ends the earlier bubbles; otherwise they last 30 seconds
+      Object.values(worldUsers).forEach(o => { if (o.userId !== userId) o.bubble = null; });
+      u.bubble = { text: String(text), until: performance.now() + WORLD_BUBBLE_MS };
     });
   } else if (worldSocket.connected) {
     joinWorld();
   }
 
-  document.addEventListener('keydown', worldKeyHandler);
   startWorldLoop();
 }
 
-function closeWorld() {
+// shared clean-up when leaving the world for any reason
+function leaveWorld() {
   document.getElementById('world-screen').style.display = 'none';
-  document.removeEventListener('keydown', worldKeyHandler);
-  worldMoveStop();
   stopWorldLoop();
+  worldTarget = null;
+  worldPointerDown = false;
+  worldPromptUid = null;
 
   // tell the server we left so our avatar doesn't stay standing there (it also saves our position)
   if (worldSocket && worldSocket.connected) worldSocket.emit('world:leave');
   worldUsers = {};
+}
 
+function closeWorld() {
+  leaveWorld();
   showTab('videos');
 }
+
+function openMapFromWorld() {
+  leaveWorld();
+  openMap();
+}
+
+// ---------- full-screen sizing ----------
+
+function fitWorldCanvas() {
+  const stage = document.getElementById('world-stage');
+  const canvas = document.getElementById('world-canvas');
+  if (!stage || !canvas) return;
+  const s = Math.min(stage.clientWidth / WORLD_W, stage.clientHeight / WORLD_H);
+  if (!(s > 0)) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = Math.floor(WORLD_W * s) + 'px';
+  canvas.style.height = Math.floor(WORLD_H * s) + 'px';
+  canvas.width = Math.floor(WORLD_W * s * dpr);
+  canvas.height = Math.floor(WORLD_H * s * dpr);
+  worldScale = canvas.width / WORLD_W;
+}
+window.addEventListener('resize', () => { if (isWorldOpen()) fitWorldCanvas(); });
 
 // ---------- rooms ----------
 
@@ -1415,70 +1459,81 @@ function switchWorldRoom(room) {
 }
 
 function applyWorldRoomStyle() {
-  const canvas = document.getElementById('world-canvas');
+  const screen = document.getElementById('world-screen');
   const room = WORLD_ROOMS[worldRoom] || WORLD_ROOMS.park;
-  if (canvas) canvas.style.background = room.bg;
+  if (screen) screen.style.background = room.bg;
 
   document.querySelectorAll('.world-room-btn').forEach(btn => {
     const active = btn.dataset.room === worldRoom;
-    btn.style.background = active ? '#ff4d8d' : '#eee';
+    btn.style.background = active ? '#ff4d8d' : 'rgba(255,255,255,0.85)';
     btn.style.color = active ? 'white' : '#333';
   });
 }
 
-// ---------- movement ----------
+// ---------- movement: mouse / touch only ----------
 
-function worldStep(dx, dy) {
+function worldPointToTarget(e) {
+  const canvas = document.getElementById('world-canvas');
+  const r = canvas.getBoundingClientRect();
+  const x = (e.clientX - r.left) * WORLD_W / r.width;
+  const y = (e.clientY - r.top) * WORLD_H / r.height;
+  worldTarget = {
+    x: Math.min(WORLD_W - WORLD_PAD, Math.max(WORLD_PAD, x)),
+    y: Math.min(WORLD_H - WORLD_PAD, Math.max(WORLD_PAD, y))
+  };
+}
+
+function setupWorldPointer() {
+  const canvas = document.getElementById('world-canvas');
+  if (canvas._worldBound) return;
+  canvas._worldBound = true;
+
+  // tap/click = walk there; hold and drag = keep steering
+  canvas.addEventListener('pointerdown', e => {
+    worldPointerDown = true;
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+    worldPointToTarget(e);
+    e.preventDefault();
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (worldPointerDown) worldPointToTarget(e);
+  });
+  const release = () => { worldPointerDown = false; };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+}
+
+// called every frame from drawWorld()
+function updateWorldMovement(now) {
+  const dt = Math.min(0.05, (now - (worldLastFrame || now)) / 1000);
+  worldLastFrame = now;
+
   const me = worldUsers[currentUser.id];
-  if (!me || !worldSocket) return;
+  if (!me || !worldTarget || !worldSocket) return;
 
-  const nx = Math.min(WORLD_W - WORLD_PAD, Math.max(WORLD_PAD, me.x + dx));
-  const ny = Math.min(WORLD_H - WORLD_PAD, Math.max(WORLD_PAD, me.y + dy));
-  if (nx === me.x && ny === me.y) return; // pushing against the wall
+  const dx = worldTarget.x - me.x;
+  const dy = worldTarget.y - me.y;
+  const dist = Math.hypot(dx, dy);
+  const step = WORLD_WALK_SPEED * dt;
+  const arrived = dist <= step;
 
-  me.x = nx;
-  me.y = ny;
-  worldSocket.emit('world:move', { x: me.x, y: me.y });
+  if (arrived) {
+    me.x = worldTarget.x;
+    me.y = worldTarget.y;
+    worldTarget = null;
+  } else {
+    me.x += dx / dist * step;
+    me.y += dy / dist * step;
+  }
+
+  if (arrived || now - worldLastMoveSent > 50) {
+    worldSocket.emit('world:move', { x: me.x, y: me.y });
+    worldLastMoveSent = now;
+  }
   checkWorldProximity();
 }
 
-function worldKeyHandler(e) {
-  // don't walk / trigger emotes while typing in the chat-bubble box
-  const tag = (e.target.tagName || '').toLowerCase();
-  if (tag === 'input' || tag === 'textarea') return;
-
-  const s = WORLD_SPEED;
-  if (e.key === 'ArrowUp') worldStep(0, -s);
-  else if (e.key === 'ArrowDown') worldStep(0, s);
-  else if (e.key === 'ArrowLeft') worldStep(-s, 0);
-  else if (e.key === 'ArrowRight') worldStep(s, 0);
-  else if (e.key === '1') sendWorldEmote('heart');
-  else if (e.key === '2') sendWorldEmote('wave');
-  else if (e.key === '3') sendWorldEmote('dance');
-  else return;
-
-  e.preventDefault(); // stop arrow keys scrolling the page
-}
-
-function worldMoveStart(direction) {
-  if (worldMoveInterval) return;
-  worldMoveInterval = setInterval(() => {
-    const s = WORLD_SPEED;
-    if (direction === 'up') worldStep(0, -s);
-    if (direction === 'down') worldStep(0, s);
-    if (direction === 'left') worldStep(-s, 0);
-    if (direction === 'right') worldStep(s, 0);
-  }, 80);
-}
-
-function worldMoveStop() {
-  if (worldMoveInterval) {
-    clearInterval(worldMoveInterval);
-    worldMoveInterval = null;
-  }
-}
-
-// ---------- emotes & chat bubbles ----------
+// ---------- emotes & chat ----------
 
 function sendWorldEmote(emote) {
   if (!worldSocket || !WORLD_EMOTES[emote]) return;
@@ -1493,12 +1548,12 @@ function sendWorldChat() {
   input.value = '';
 }
 
-// ---------- proximity (unchanged) ----------
+// ---------- proximity ----------
 
 function checkWorldProximity() {
   const me = worldUsers[currentUser.id];
   const prompt = document.getElementById('world-talk-prompt');
-  if (!me) return;
+  if (!me || !prompt) return;
 
   let nearest = null;
   let nearestDist = Infinity;
@@ -1513,9 +1568,19 @@ function checkWorldProximity() {
   });
 
   if (nearest && nearestDist < WORLD_TALK_DISTANCE) {
+    if (worldPromptUid === nearest.uid) return; // already showing, don't rebuild every frame
+    worldPromptUid = nearest.uid;
+    prompt.textContent = '';
+    const label = document.createElement('span');
+    label.textContent = '💬 ' + nearest.name + ' is nearby';
+    const btn = document.createElement('button');
+    btn.textContent = 'Talk';
+    btn.style.cssText = 'width:auto; padding:4px 10px; margin:0 0 0 8px; display:inline-block;';
+    btn.onclick = () => { leaveWorld(); openChat(nearest.uid, nearest.name); };
+    prompt.append(label, btn);
     prompt.style.display = 'block';
-    prompt.innerHTML = `💬 <strong>${nearest.name}</strong> is nearby — <button onclick="openChat('${nearest.uid}', '${nearest.name}')" style="width:auto; padding:4px 10px; margin-left:6px;">Talk</button>`;
   } else {
+    worldPromptUid = null;
     prompt.style.display = 'none';
   }
 }
@@ -1653,6 +1718,8 @@ function drawWorld() {
   const now = performance.now();
   const users = Object.values(worldUsers);
 
+  updateWorldMovement(now);
+  ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
   ctx.clearRect(0, 0, WORLD_W, WORLD_H);
 
   // scenery for this room

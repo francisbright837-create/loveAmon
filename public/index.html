@@ -303,7 +303,6 @@
       <div class="search-bar">
         <input type="text" id="search-input" placeholder="Search users..." onkeyup="if(event.key==='Enter') searchUsers()">
         <button onclick="searchUsers()" style="width:auto; padding:10px 18px;">🔍</button>
-        <button onclick="openMap()" style="width:auto; padding:10px 18px;">🗺️</button>
         <button onclick="openWorld()" style="width:auto; padding:10px 18px;">🌍</button>
       </div>
       <div id="search-results" style="padding:0 15px;"></div>
@@ -330,44 +329,33 @@
       <div id="leaflet-map" style="width:100%; height:calc(100vh - 220px);"></div>
     </div>
 
-    <!-- World Screen (live moving avatars) -->
-    <div id="world-screen" style="display:none;">
-      <button onclick="closeWorld()" style="margin:15px;">← Back</button>
+    <!-- World Screen (full screen) -->
+    <div id="world-screen" style="display:none; position:fixed; inset:0; z-index:5000; flex-direction:column;">
 
-      <div style="display:flex; justify-content:center; gap:8px; margin-bottom:10px;">
-        <button class="world-room-btn" data-room="park" onclick="switchWorldRoom('park')" style="width:auto; padding:8px 14px;">🌳 Park</button>
-        <button class="world-room-btn" data-room="cafe" onclick="switchWorldRoom('cafe')" style="width:auto; padding:8px 14px;">☕ Café</button>
-        <button class="world-room-btn" data-room="beach" onclick="switchWorldRoom('beach')" style="width:auto; padding:8px 14px;">🏖️ Beach</button>
+      <div style="display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:8px; padding:10px;">
+        <button onclick="closeWorld()" style="width:auto; padding:8px 14px; margin:0;">←</button>
+        <button class="world-room-btn" data-room="park" onclick="switchWorldRoom('park')" style="width:auto; padding:8px 14px; margin:0;">🌳 Park</button>
+        <button class="world-room-btn" data-room="cafe" onclick="switchWorldRoom('cafe')" style="width:auto; padding:8px 14px; margin:0;">☕ Café</button>
+        <button class="world-room-btn" data-room="beach" onclick="switchWorldRoom('beach')" style="width:auto; padding:8px 14px; margin:0;">🏖️ Beach</button>
+        <button onclick="openMapFromWorld()" style="width:auto; padding:8px 14px; margin:0;">🗺️ Map</button>
       </div>
 
-      <div style="text-align:center; position:relative; max-width:600px; margin:0 auto;">
-        <canvas id="world-canvas" width="600" height="400" style="background:linear-gradient(to bottom, #87ceeb 0%, #a8d8a8 60%, #7ba86b 100%); border-radius:12px; max-width:100%; touch-action:none;"></canvas>
-        <div id="world-talk-prompt" style="display:none; position:absolute; top:10px; left:50%; transform:translateX(-50%); background:white; padding:8px 16px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,0.2);"></div>
+      <div id="world-stage" style="flex:1; min-height:0; position:relative; display:flex; align-items:center; justify-content:center;">
+        <canvas id="world-canvas" style="touch-action:none; cursor:pointer;"></canvas>
+        <div id="world-talk-prompt" style="display:none; position:absolute; top:10px; left:50%; transform:translateX(-50%); background:white; padding:8px 16px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,0.2); white-space:nowrap;"></div>
       </div>
 
-      <div style="display:flex; justify-content:center; gap:8px; margin-top:12px;">
-        <button onclick="sendWorldEmote('heart')" style="width:auto; padding:8px 14px;">❤️</button>
-        <button onclick="sendWorldEmote('wave')" style="width:auto; padding:8px 14px;">👋</button>
-        <button onclick="sendWorldEmote('dance')" style="width:auto; padding:8px 14px;">💃</button>
+      <div style="display:flex; align-items:center; gap:6px; padding:10px; padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px)); box-sizing:border-box;">
+        <button onclick="sendWorldEmote('heart')" style="width:auto; padding:8px 12px; margin:0;">❤️</button>
+        <button onclick="sendWorldEmote('wave')" style="width:auto; padding:8px 12px; margin:0;">👋</button>
+        <button onclick="sendWorldEmote('dance')" style="width:auto; padding:8px 12px; margin:0;">💃</button>
+        <input id="world-chat-input" type="text" maxlength="80" placeholder="Say something..." autocomplete="off" onkeydown="if(event.key==='Enter') sendWorldChat()" style="flex:1; min-width:0; max-width:none; margin:0;">
+        <button onclick="sendWorldChat()" style="width:auto; padding:10px 16px; margin:0;">Send</button>
       </div>
-
-      <div style="display:flex; gap:6px; max-width:600px; margin:10px auto 0; padding:0 15px; box-sizing:border-box;">
-        <input id="world-chat-input" type="text" maxlength="80" placeholder="Say something..." autocomplete="off" onkeydown="if(event.key==='Enter') sendWorldChat()" style="flex:1; min-width:0;">
-        <button onclick="sendWorldChat()" style="width:auto; padding:10px 16px;">Send</button>
-      </div>
-
-      <div style="display:flex; flex-direction:column; align-items:center; margin-top:15px; gap:4px;">
-        <button onmousedown="worldMoveStart('up')" onmouseup="worldMoveStop()" ontouchstart="worldMoveStart('up')" ontouchend="worldMoveStop()" style="width:50px; padding:10px;">⬆️</button>
-        <div style="display:flex; gap:4px;">
-          <button onmousedown="worldMoveStart('left')" onmouseup="worldMoveStop()" ontouchstart="worldMoveStart('left')" ontouchend="worldMoveStop()" style="width:50px; padding:10px;">⬅️</button>
-          <button onmousedown="worldMoveStart('down')" onmouseup="worldMoveStop()" ontouchstart="worldMoveStart('down')" ontouchend="worldMoveStop()" style="width:50px; padding:10px;">⬇️</button>
-          <button onmousedown="worldMoveStart('right')" onmouseup="worldMoveStop()" ontouchstart="worldMoveStart('right')" ontouchend="worldMoveStop()" style="width:50px; padding:10px;">➡️</button>
-        </div>
-      </div>
-      <p style="text-align:center; color:#888; font-size:13px; margin-top:10px;">Arrow keys or the buttons to walk · keys 1 / 2 / 3 for emotes · type above to chat · get close to someone to open a full chat.</p>
     </div>
 
-    <!-- Public Profile Screen -->
+    
+<!-- Public Profile Screen -->
     <div id="public-profile-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
       <button onclick="closePublicProfile()" style="margin-bottom:15px;">← Back</button>
       <div id="public-profile-details" style="text-align:center;"></div>

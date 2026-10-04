@@ -16,7 +16,7 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(helmet({
-  // ✅ lets map tile servers see which site is asking (OpenStreetMap blocks requests without it)
+  // lets map tile servers see which site is asking (OpenStreetMap blocks requests without it)
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   contentSecurityPolicy: {
     directives: {
@@ -113,7 +113,7 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Unknown /api routes answer with JSON instead of an HTML "Cannot GET" page
+// Unknown /api routes answer with JSON instead of Express's HTML "Cannot GET" page
 app.use("/api", (req, res) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.originalUrl}` });
 });
@@ -132,7 +132,7 @@ app.use((err, req, res, next) => {
 // There are no DB writes while people are walking around.
 
 const WORLD_W = 600;
-const WORLD_H = 400;
+const WORLD_H = 600;
 const WORLD_PAD = 24;                              // must match the client
 const WORLD_ROOMS = ["park", "cafe", "beach"];     // must match the client
 const WORLD_EMOTES = ["heart", "wave", "dance"];   // must match the client
@@ -157,7 +157,7 @@ const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 const roomKey = (room) => "world:" + room;
 const randomSpawn = () => ({
   x: 250 + Math.floor(Math.random() * 100),
-  y: 150 + Math.floor(Math.random() * 100)
+  y: 250 + Math.floor(Math.random() * 100)
 });
 
 function roomState(room) {
