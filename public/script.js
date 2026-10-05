@@ -549,8 +549,8 @@ function renderFeedSlides() {
     const liked = v.likes?.includes(currentUser.id);
     const heartIcon = liked ? '❤️' : '🤍';
     return `
-      <div class="video-slide ${i === feedIndex ? 'active' : ''}" data-index="${i}">
-        <video src="${v.url}" ${i === feedIndex ? 'autoplay' : ''} loop playsinline crossorigin="anonymous" onclick="toggleSlidePlay(this)"></video>
+      <div class="video-slide" data-index="${i}">
+        <video src="${v.url}" loop playsinline preload="metadata" crossorigin="anonymous" onclick="toggleSlidePlay(this)"></video>
         <div class="slide-top">
           <strong onclick="openPublicProfile('${v.user?._id}')">${v.user?.name || 'Unknown'}</strong>
           ${v.user?._id !== currentUser.id ? `
@@ -577,66 +577,93 @@ function renderFeedSlides() {
       </div>
     `;
   }).join('');
+
+  fitFeedHeight();
+  restoreFeedPosition();
+  observeFeedSlides();
 }
 
 function toggleSlidePlay(videoEl) {
-  if (videoEl.paused) videoEl.play(); else videoEl.pause();
+  // if the browser forced the video to start muted, the first tap turns the sound on
+  if (videoEl.muted && !videoEl.paused) { videoEl.muted = false; return; }
+  if (videoEl.paused) videoEl.play().catch(() => {}); else videoEl.pause();
 }
 
-function setupFeedSwipe() {
+let feedObserver = null;
+const feedViewed = new Set();
+
+// Make the feed exactly as tall as the free space between the search bar and the bottom nav
+function fitFeedHeight() {
   const container = document.getElementById('video-feed-container');
-  if (!container || feedSwipeBound) return;
+  if (!container || container.style.display === 'none') return;
+  const nav = document.getElementById('bottom-nav');
+  const navH = nav ? nav.offsetHeight : 80;
+  const top = container.getBoundingClientRect().top + window.pageYOffset;
+  const h = Math.max(300, Math.floor(window.innerHeight - top - navH));
+  container.style.setProperty('--feed-h', h + 'px');
+}
+
+function restoreFeedPosition() {
+  const container = document.getElementById('video-feed-container');
+  if (!container) return;
+  container.scrollTop = feedIndex * container.clientHeight;
+}
+
+function playSlideVideo(vid) {
+  const p = vid.play();
+  if (p && p.catch) {
+    // some phones only allow muted autoplay when the swipe wasn't a direct tap
+    p.catch(() => { vid.muted = true; vid.play().catch(() => {}); });
+  }
+}
+
+// Plays the video you're looking at and pauses the rest
+function observeFeedSlides() {
+  const container = document.getElementById('video-feed-container');
+  if (!container) return;
+  if (feedObserver) feedObserver.disconnect();
+
+  feedObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const slide = entry.target;
+      const vid = slide.querySelector('video');
+      const idx = parseInt(slide.dataset.index);
+      if (!vid) return;
+
+      if (entry.isIntersecting) {
+        feedIndex = idx;
+        playSlideVideo(vid);
+        const video = feedVideos[idx];
+        if (video && !feedViewed.has(video._id)) {
+          feedViewed.add(video._id);
+          fetch(API_URL + '/videos/view/' + video._id, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token }
+          }).catch(() => {});
+        }
+      } else {
+        vid.pause();
+      }
+    });
+  }, { root: container, threshold: 0.6 });
+
+  container.querySelectorAll('.video-slide').forEach(s => feedObserver.observe(s));
+}
+
+// Swiping is now native scrolling (with snap), so we only need to keep the size right
+function setupFeedSwipe() {
+  if (feedSwipeBound) return;
   feedSwipeBound = true;
-
-  container.addEventListener('touchstart', (e) => {
-    touchStartY = e.touches[0].clientY;
-  }, { passive: false });
-
-  container.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-  }, { passive: false });
-
-  container.addEventListener('touchend', (e) => {
-    if (touchStartY === null) return;
-    const deltaY = touchStartY - e.changedTouches[0].clientY;
-    if (Math.abs(deltaY) > 50) {
-      if (deltaY > 0) goToSlide(feedIndex + 1);
-      else goToSlide(feedIndex - 1);
-    }
-    touchStartY = null;
-  }, { passive: false });
-
-  let wheelLock = false;
-  container.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    if (wheelLock) return;
-    wheelLock = true;
-    if (e.deltaY > 0) goToSlide(feedIndex + 1);
-    else if (e.deltaY < 0) goToSlide(feedIndex - 1);
-    setTimeout(() => { wheelLock = false; }, 600);
-  }, { passive: false });
+  window.addEventListener('resize', () => {
+    fitFeedHeight();
+    restoreFeedPosition();
+  });
 }
 
 function goToSlide(index) {
-  if (index < 0 || index >= feedVideos.length) return;
-  feedIndex = index;
-
-  document.querySelectorAll('.video-slide').forEach(slide => {
-    const slideVideo = slide.querySelector('video');
-    if (parseInt(slide.dataset.index) === feedIndex) {
-      slide.classList.add('active');
-      slideVideo.currentTime = 0;
-      slideVideo.play().catch(() => {});
-    } else {
-      slide.classList.remove('active');
-      slideVideo.pause();
-    }
-  });
-
-  fetch(API_URL + '/videos/view/' + feedVideos[feedIndex]._id, {
-    method: 'POST',
-    headers: { 'Authorization': 'Bearer ' + token }
-  });
+  const container = document.getElementById('video-feed-container');
+  if (!container || index < 0 || index >= feedVideos.length) return;
+  container.scrollTo({ top: index * container.clientHeight, behavior: 'smooth' });
 }
 
 async function toggleLikeSlide(videoId) {
@@ -720,6 +747,8 @@ async function searchUsers() {
   if (!q) {
     container.innerHTML = '';
     feedContainer.style.display = 'block';
+    fitFeedHeight();
+    restoreFeedPosition();
     return;
   }
 

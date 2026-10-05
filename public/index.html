@@ -148,24 +148,31 @@
       font-size: 14px;
     }
 
-    /* Full-screen swipeable video feed */
+    /* Full-screen swipeable video feed (native scroll-snap: swipe up/down on phones) */
     .video-feed-container {
       position: relative;
       width: 100%;
-      height: calc(100vh - 145px);
-      overflow: hidden;
+      height: var(--feed-h, calc(100vh - 145px));
+      overflow-y: scroll;
+      overflow-x: hidden;
+      scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
+      touch-action: pan-y;
+      scrollbar-width: none;
       background: black;
-      touch-action: none;
     }
+    .video-feed-container::-webkit-scrollbar { display: none; }
     .video-slide {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      display: none;
+      position: relative;
+      width: 100%;
+      height: var(--feed-h, calc(100vh - 145px));
+      display: flex;
       align-items: center;
       justify-content: center;
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
     }
-    .video-slide.active { display: flex; }
     .video-slide video {
       width: 100%;
       height: 100%;
