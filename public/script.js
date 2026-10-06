@@ -262,6 +262,7 @@ function showTab(tab) {
   if (tab === 'videos') {
     document.getElementById('video-feed-screen').style.display = 'block';
     document.getElementById('nav-videos').classList.add('active');
+    closeFeedSearch();
     loadVideoFeed();
   } else if (tab === 'messages') {
     document.getElementById('messages-screen').style.display = 'block';
@@ -550,7 +551,7 @@ function renderFeedSlides() {
     const heartIcon = liked ? '❤️' : '🤍';
     return `
       <div class="video-slide" data-index="${i}">
-        <video src="${v.url}" loop playsinline preload="metadata" crossorigin="anonymous" onclick="toggleSlidePlay(this)"></video>
+        <video src="${v.url}" loop playsinline preload="metadata" crossorigin="anonymous" onloadedmetadata="fitVideoMode(this)" onclick="toggleSlidePlay(this)"></video>
         <div class="slide-top">
           <strong onclick="openPublicProfile('${v.user?._id}')">${v.user?.name || 'Unknown'}</strong>
           ${v.user?._id !== currentUser.id ? `
@@ -595,11 +596,13 @@ const feedViewed = new Set();
 // Make the feed exactly as tall as the free space between the search bar and the bottom nav
 function fitFeedHeight() {
   const container = document.getElementById('video-feed-container');
-  if (!container || container.style.display === 'none') return;
+  const screen = document.getElementById('video-feed-screen');
+  if (!container || !screen || container.style.display === 'none') return;
   const nav = document.getElementById('bottom-nav');
-  const navH = nav ? nav.offsetHeight : 80;
-  const top = container.getBoundingClientRect().top + window.pageYOffset;
-  const h = Math.max(300, Math.floor(window.innerHeight - top - navH));
+  const navH = nav ? nav.offsetHeight : 70;
+  // the feed fills everything above the bottom nav bar
+  screen.style.bottom = navH + 'px';
+  const h = Math.max(300, Math.floor(window.innerHeight - navH));
   container.style.setProperty('--feed-h', h + 'px');
 }
 
@@ -736,24 +739,46 @@ async function shareVideo(url) {
   }
 }
 
+// ==================== FEED SEARCH (small button that expands) ====================
+
+function openFeedSearch() {
+  document.getElementById('feed-search-toggle').style.display = 'none';
+  document.getElementById('feed-search-bar').style.display = 'flex';
+  const input = document.getElementById('search-input');
+  if (input) input.focus();
+}
+
+function closeFeedSearch() {
+  const toggle = document.getElementById('feed-search-toggle');
+  const bar = document.getElementById('feed-search-bar');
+  const results = document.getElementById('search-results');
+  const input = document.getElementById('search-input');
+  if (toggle) toggle.style.display = 'flex';
+  if (bar) bar.style.display = 'none';
+  if (results) { results.innerHTML = ''; results.style.display = 'none'; }
+  if (input) input.value = '';
+}
+
+// portrait videos fill the whole screen, landscape ones stay uncropped
+function fitVideoMode(v) {
+  v.style.objectFit = v.videoHeight > v.videoWidth ? 'cover' : 'contain';
+}
+
 // ==================== SEARCH USERS ====================
 
 async function searchUsers() {
   const input = document.getElementById('search-input');
   const q = input?.value?.trim();
   const container = document.getElementById('search-results');
-  const feedContainer = document.getElementById('video-feed-container');
 
   if (!q) {
     container.innerHTML = '';
-    feedContainer.style.display = 'block';
-    fitFeedHeight();
-    restoreFeedPosition();
+    container.style.display = 'none';
     return;
   }
 
-  feedContainer.style.display = 'none';
-  container.innerHTML = '<p>Searching...</p>';
+  container.style.display = 'block';
+  container.innerHTML = '<p style="margin:10px;">Searching...</p>';
 
   try {
     const res = await fetch(API_URL + '/follow/search?q=' + encodeURIComponent(q), {
