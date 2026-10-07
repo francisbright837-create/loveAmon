@@ -212,6 +212,28 @@
       align-items: center;
       gap: 8px;
     }
+    /* Camera */
+    .cam-row { display:flex; gap:8px; overflow-x:auto; padding:4px 12px; scrollbar-width:none; }
+    .cam-row::-webkit-scrollbar { display:none; }
+    .cam-chip {
+      flex:none; width:auto; max-width:none; margin:0; padding:7px 13px;
+      border-radius:18px; border:1px solid rgba(255,255,255,0.4);
+      background:rgba(0,0,0,0.45); color:white; font-size:14px;
+    }
+    .cam-chip.on { background:#ff4d8d; border-color:#ff4d8d; }
+    .cam-mode {
+      width:auto; max-width:none; margin:0; padding:6px 12px; border:none;
+      background:transparent; color:rgba(255,255,255,0.65); font-size:15px; font-weight:600;
+    }
+    .cam-mode.on { color:white; border-bottom:2px solid white; border-radius:0; }
+    .cam-shutter {
+      width:72px; height:72px; max-width:none; margin:0; padding:0; flex:none;
+      border-radius:50%; border:4px solid white; background:transparent;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .cam-shutter span { display:block; width:54px; height:54px; border-radius:50%; background:white; transition:all .15s; }
+    .cam-shutter.rec span { width:28px; height:28px; border-radius:6px; background:#e60023; }
+
     .feed-search-bar input {
       flex: 1; min-width: 0;
       max-width: none;
@@ -474,10 +496,46 @@
     <div id="upload-video-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
       <button onclick="closeUploadVideo()" style="margin-bottom:15px;">← Back</button>
       <h2>Upload a Video 🎬</h2>
+      <button onclick="openCamera()" style="margin-bottom:15px;">📷 Record or take a photo</button>
+      <p style="color:#666; margin:0 0 10px;">or choose a file:</p>
       <input type="file" id="video-input" accept="video/*">
       <textarea id="video-caption" placeholder="Add a caption..." rows="3" maxlength="200" style="margin-top:15px;"></textarea>
       <button onclick="uploadVideo()" style="margin-top:15px;">Upload</button>
       <div id="upload-status" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- Camera Screen (photo / video with AI places & characters) -->
+    <div id="camera-screen" style="display:none; position:fixed; inset:0; z-index:9600; background:#000; text-align:left;">
+      <video id="cam-video" playsinline muted autoplay style="display:none;"></video>
+      <canvas id="cam-canvas" width="720" height="1280" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;"></canvas>
+
+      <div style="position:absolute; top:calc(10px + env(safe-area-inset-top, 0px)); left:10px; right:10px; display:flex; justify-content:space-between; align-items:center; z-index:2;">
+        <button class="feed-search-btn" onclick="closeCamera()" aria-label="Close camera">✕</button>
+        <div id="cam-timer" style="display:none; background:rgba(220,0,0,0.85); color:white; padding:6px 14px; border-radius:16px; font-weight:600;"></div>
+        <button class="feed-search-btn" onclick="flipCamera()" aria-label="Switch camera">🔄</button>
+      </div>
+      <div id="cam-status" style="display:none; position:absolute; top:calc(66px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.65); color:white; padding:6px 14px; border-radius:14px; font-size:13px; white-space:nowrap; z-index:2;"></div>
+
+      <div style="position:absolute; left:0; right:0; bottom:0; padding:10px 0 calc(14px + env(safe-area-inset-bottom, 0px)); background:linear-gradient(to top, rgba(0,0,0,0.75), rgba(0,0,0,0)); z-index:2;">
+        <div id="cam-envs" class="cam-row"></div>
+        <div id="cam-chars" class="cam-row"></div>
+        <div style="display:flex; align-items:center; justify-content:center; gap:22px; margin-top:8px;">
+          <button id="cam-mode-photo" class="cam-mode" onclick="setCamMode('photo')">Photo</button>
+          <button id="cam-shutter" class="cam-shutter" onclick="camShutter()" aria-label="Take photo or record"><span></span></button>
+          <button id="cam-mode-video" class="cam-mode" onclick="setCamMode('video')">Video</button>
+        </div>
+      </div>
+
+      <div id="cam-preview" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.94); z-index:5; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:16px; box-sizing:border-box;">
+        <img id="cam-preview-img" style="display:none; max-width:100%; max-height:60%; border-radius:12px;">
+        <video id="cam-preview-video" playsinline loop controls style="display:none; max-width:100%; max-height:60%; border-radius:12px;"></video>
+        <textarea id="cam-caption" placeholder="Add a caption..." rows="2" maxlength="200" style="display:none; max-width:420px;"></textarea>
+        <button id="cam-post-btn" onclick="camPostVideo()" style="display:none; max-width:420px;">Post video</button>
+        <button id="cam-profile-btn" onclick="camUseAsProfilePhoto()" style="display:none; max-width:420px;">Use as my profile photo</button>
+        <button onclick="camSaveToDevice()" style="max-width:420px; background:#444;">Save to my phone</button>
+        <button onclick="closeCamPreview()" style="max-width:420px; background:#444;">Retake</button>
+        <div id="cam-msg" style="color:white;"></div>
+      </div>
     </div>
 
     <!-- Edit Profile Picture Screen -->

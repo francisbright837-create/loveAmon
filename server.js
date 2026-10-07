@@ -11,6 +11,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const helmet = require("helmet");
 const mongoSanitize = require("express-mongo-sanitize");
+const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
@@ -21,16 +22,18 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      "script-src": ["'self'", "https://cdnjs.cloudflare.com"],
+      "script-src": ["'self'", "https://cdnjs.cloudflare.com", "'wasm-unsafe-eval'"],   // wasm = camera AI
       "script-src-attr": ["'unsafe-inline'"],
       "img-src": [
         "'self'",
         "data:",
+        "blob:",                                                          // camera photo preview
         "https://res.cloudinary.com",
         "https://*.tile.openstreetmap.org",
         "https://cdnjs.cloudflare.com"
       ],
-      "media-src": ["'self'", "https://res.cloudinary.com"],
+      "media-src": ["'self'", "blob:", "https://res.cloudinary.com"],       // blob: = camera video preview
+      "worker-src": ["'self'", "blob:"],
     },
   },
 }));
@@ -61,6 +64,11 @@ app.use(cors({
 app.options('*', cors());
 
 app.use(express.json({ limit: "5mb" }));
+// camera AI (person cut-out) files, served from the installed npm package
+app.use("/vendor/selfie", express.static(
+  path.join(__dirname, "node_modules", "@mediapipe", "selfie_segmentation"),
+  { maxAge: "7d" }
+));
 app.use(express.static("public"));
 
 mongoose.connect(process.env.MONGO_URI, {

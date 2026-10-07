@@ -246,7 +246,7 @@ function hideAllScreens() {
     'matching-screen', 'messages-screen', 'my-profile-screen',
     'upload-video-screen', 'edit-profile-screen', 'chat-screen',
     'video-feed-screen', 'video-detail-screen', 'public-profile-screen',
-    'map-screen', 'world-screen'
+    'map-screen', 'world-screen', 'camera-screen'
   ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -1967,6 +1967,419 @@ function drawWorld() {
     if (u.bubble) drawWorldBubble(ctx, u, now);
     if (u.emote) drawWorldEmote(ctx, u, now);
   });
+}
+
+// ==================== CAMERA (photos, videos, AI environments & characters) ====================
+// The "AI" part is on-device person segmentation (MediaPipe): it cuts you out of the camera
+// picture so a new place and a cartoon character can be put behind you. Nothing is sent to a server
+// until the user presses Post.
+
+const CAM_W = 720, CAM_H = 1280, CAM_MAX_SEC = 60;
+const CAM_EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+const CAM_ENVS = {
+  none:   { label: '🚫 My room' },
+  park:   { label: '🌳 Park',  stops: ['#87ceeb', '#a8d8a8', '#7ba86b'], decor: [['🌳',90,520],['🌳',640,470],['🌷',140,1150],['🌷',560,1180],['☁️',520,150],['☁️',140,260]] },
+  cafe:   { label: '☕ Café',  stops: ['#f6e6d0', '#e2c39b', '#b98a5e'], decor: [['☕',110,300],['🥐',600,380],['🍰',580,1150],['🌿',120,1100],['🖼️',360,180]] },
+  beach:  { label: '🏖️ Beach', stops: ['#7fd6f5', '#4fb6e0', '#f3e2b3', '#ecd08f'], decor: [['🌴',90,700],['🌴',640,640],['☀️',560,170],['🐚',200,1190],['⛱️',540,1100]] },
+  space:  { label: '🚀 Space', stops: ['#05051a', '#1a0b3d', '#3b1a6b'], stars: true, decor: [['🪐',560,260],['🌙',130,200],['🚀',150,1100]] },
+  city:   { label: '🌃 City',  stops: ['#0b1030', '#3a1c71', '#d76d77'], city: true, decor: [['🌙',580,180]] },
+  hearts: { label: '💖 Love',  stops: ['#ffd1e3', '#ff9ec4', '#ff4d88'], decor: [['💖',120,260],['💕',600,380],['💗',160,1120],['💘',580,1060]] }
+};
+const CAM_CHARS = ['none', '🐱', '🐶', '🦄', '🤖', '👻', '🐻', '🐼', '🦊', '🐸'];
+
+let camStream = null, camRecorder = null, camChunks = [], camRaf = null, camActive = false;
+let camVideo = null, camCanvas = null, camCtx = null;
+let camSegmenter = null, camAIFailed = false, camAIStarting = false;
+let camFacing = 'user', camMode = 'photo', camEnv = 'none', camChar = 'none';
+let camRecording = false, camTimerId = null, camStartedAt = 0;
+let camResult = null, camResultUrl = null;
+const camEnvCache = {};
+
+function camStatus(text) {
+  const el = document.getElementById('cam-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.display = text ? 'block' : 'none';
+}
+
+function camEnvLayer(key) {
+  if (camEnvCache[key]) return camEnvCache[key];
+  const env = CAM_ENVS[key];
+  const c = document.createElement('canvas');
+  c.width = CAM_W; c.height = CAM_H;
+  const g = c.getContext('2d');
+
+  const grad = g.createLinearGradient(0, 0, 0, CAM_H);
+  env.stops.forEach((col, i) => grad.addColorStop(i / (env.stops.length - 1), col));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, CAM_W, CAM_H);
+
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  if (env.stars) {
+    for (let i = 0; i < 110; i++) {
+      g.fillStyle = 'rgba(255,255,255,' + (0.4 + rnd() * 0.6).toFixed(2) + ')';
+      g.fillRect(rnd() * CAM_W, rnd() * CAM_H * 0.85, 3, 3);
+    }
+  }
+  if (env.city) {
+    const base = CAM_H * 0.86;
+    for (let x = 0; x < CAM_W; ) {
+      const w = 60 + Math.floor(rnd() * 60), h = 220 + Math.floor(rnd() * 420);
+      g.fillStyle = '#120a2a';
+      g.fillRect(x, base - h, w, h + (CAM_H - base));
+      for (let wy = base - h + 16; wy < base - 10; wy += 34) {
+        for (let wx = x + 10; wx < x + w - 14; wx += 22) {
+          if (rnd() > 0.45) { g.fillStyle = 'rgba(255,214,102,0.85)'; g.fillRect(wx, wy, 9, 14); }
+        }
+      }
+      x += w + 4;
+    }
+  }
+  g.font = '110px ' + CAM_EMOJI_FONT;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  (env.decor || []).forEach(([e, x, y]) => g.fillText(e, x, y));
+
+  camEnvCache[key] = c;
+  return c;
+}
+
+function camCover(src) {
+  const iw = src.videoWidth || src.width, ih = src.videoHeight || src.height;
+  const scale = Math.max(CAM_W / iw, CAM_H / ih);
+  const sw = CAM_W / scale, sh = CAM_H / scale;
+  return [(iw - sw) / 2, (ih - sh) / 2, sw, sh];
+}
+
+function camMirror(ctx) {
+  if (camFacing === 'user') { ctx.translate(CAM_W, 0); ctx.scale(-1, 1); }
+}
+
+function drawCamChar(ctx, t) {
+  if (camChar === 'none') return;
+  ctx.font = '260px ' + CAM_EMOJI_FONT;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(camChar, CAM_W * 0.78, CAM_H * 0.70 + Math.sin(t * 3) * 18);
+  ctx.font = '120px ' + CAM_EMOJI_FONT;
+  ctx.fillText(camChar, CAM_W * 0.16, CAM_H * 0.80 + Math.sin(t * 3 + 1.5) * 14);
+}
+
+// results = AI output (person cut-out). null = plain camera picture
+function camDraw(results) {
+  if (!camActive) return;
+  const ctx = camCtx, t = performance.now() / 1000;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, CAM_W, CAM_H);
+
+  if (!results) {
+    const [sx, sy, sw, sh] = camCover(camVideo);
+    ctx.save(); camMirror(ctx);
+    ctx.drawImage(camVideo, sx, sy, sw, sh, 0, 0, CAM_W, CAM_H);
+    ctx.restore();
+    return;
+  }
+
+  const [sx, sy, sw, sh] = camCover(results.image);
+  // 1) the person only
+  ctx.save(); camMirror(ctx);
+  ctx.drawImage(results.segmentationMask, sx, sy, sw, sh, 0, 0, CAM_W, CAM_H);
+  ctx.globalCompositeOperation = 'source-in';
+  ctx.drawImage(results.image, sx, sy, sw, sh, 0, 0, CAM_W, CAM_H);
+  ctx.restore();
+
+  // 2) behind the person: character, then the place
+  ctx.globalCompositeOperation = 'destination-over';
+  drawCamChar(ctx, t);
+  if (camEnv !== 'none') {
+    ctx.drawImage(camEnvLayer(camEnv), 0, 0);
+  } else {
+    ctx.save(); camMirror(ctx);
+    ctx.drawImage(results.image, sx, sy, sw, sh, 0, 0, CAM_W, CAM_H);
+    ctx.restore();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+async function camLoop() {
+  if (!camActive) return;
+  try {
+    if (camVideo.readyState >= 2) {
+      if (camSegmenter && (camEnv !== 'none' || camChar !== 'none')) {
+        await camSegmenter.send({ image: camVideo });
+      } else {
+        camDraw(null);
+      }
+    }
+  } catch (err) {
+    console.error('Camera AI error:', err);
+    camSegmenter = null; camAIFailed = true;
+    camStatus('AI effects are not available on this phone - using the plain camera');
+    camDraw(null);
+  }
+  camRaf = requestAnimationFrame(camLoop);
+}
+
+async function initCamAI() {
+  if (camSegmenter || camAIFailed || camAIStarting) return;
+  camAIStarting = true;
+  camStatus('Loading AI effects...');
+  try {
+    if (!window.SelfieSegmentation) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = '/vendor/selfie/selfie_segmentation.js';
+        s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    const seg = new SelfieSegmentation({ locateFile: f => '/vendor/selfie/' + f });
+    seg.setOptions({ modelSelection: 1 });
+    seg.onResults(camDraw);
+    await seg.initialize();
+    camSegmenter = seg;
+    camStatus('');
+  } catch (err) {
+    console.error('Could not load camera AI:', err);
+    camAIFailed = true;
+    camStatus('AI effects could not load - plain camera only');
+  }
+  camAIStarting = false;
+}
+
+async function startCamStream() {
+  stopCamStream();
+  const video = { facingMode: camFacing, width: { ideal: 720 }, height: { ideal: 1280 } };
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video, audio: true });
+  } catch (err) {
+    camStream = await navigator.mediaDevices.getUserMedia({ video, audio: false }); // mic refused
+  }
+  camVideo.srcObject = camStream;
+  await camVideo.play();
+}
+
+function stopCamStream() {
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = null;
+}
+
+async function openCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showMessage('❌ This browser cannot use the camera');
+    return;
+  }
+  hideAllScreens();
+  document.getElementById('camera-screen').style.display = 'block';
+
+  camVideo = document.getElementById('cam-video');
+  camCanvas = document.getElementById('cam-canvas');
+  camCtx = camCanvas.getContext('2d');
+  buildCamChips();
+  closeCamPreview();
+  setCamMode('photo');
+
+  try {
+    await startCamStream();
+  } catch (err) {
+    closeCamera();
+    showMessage('❌ Could not open the camera. Please allow camera access.');
+    return;
+  }
+  camActive = true;
+  camLoop();
+  initCamAI();
+}
+
+function closeCamera() {
+  camActive = false;
+  if (camRaf) cancelAnimationFrame(camRaf);
+  if (camRecording && camRecorder) { camRecorder.onstop = null; try { camRecorder.stop(); } catch (e) {} }
+  camRecording = false;
+  clearInterval(camTimerId);
+  stopCamStream();
+  closeCamPreview();
+  document.getElementById('camera-screen').style.display = 'none';
+  openUploadVideo();
+}
+
+async function flipCamera() {
+  if (camRecording) return;
+  camFacing = camFacing === 'user' ? 'environment' : 'user';
+  try { await startCamStream(); } catch (err) { showMessage('❌ Could not switch camera'); }
+}
+
+// ---------- chips & modes ----------
+
+function buildCamChips() {
+  const envBox = document.getElementById('cam-envs');
+  const charBox = document.getElementById('cam-chars');
+  if (envBox.children.length) { refreshCamChips(); return; }
+
+  Object.keys(CAM_ENVS).forEach(key => {
+    const b = document.createElement('button');
+    b.className = 'cam-chip'; b.dataset.env = key;
+    b.textContent = CAM_ENVS[key].label;
+    b.onclick = () => { camEnv = key; refreshCamChips(); };
+    envBox.appendChild(b);
+  });
+  CAM_CHARS.forEach(ch => {
+    const b = document.createElement('button');
+    b.className = 'cam-chip'; b.dataset.char = ch;
+    b.textContent = ch === 'none' ? '🚫' : ch;
+    b.onclick = () => { camChar = ch; refreshCamChips(); };
+    charBox.appendChild(b);
+  });
+  refreshCamChips();
+}
+
+function refreshCamChips() {
+  document.querySelectorAll('#cam-envs .cam-chip').forEach(b => b.classList.toggle('on', b.dataset.env === camEnv));
+  document.querySelectorAll('#cam-chars .cam-chip').forEach(b => b.classList.toggle('on', b.dataset.char === camChar));
+}
+
+function setCamMode(mode) {
+  if (camRecording) return;
+  camMode = mode;
+  document.getElementById('cam-mode-photo').classList.toggle('on', mode === 'photo');
+  document.getElementById('cam-mode-video').classList.toggle('on', mode === 'video');
+}
+
+// ---------- shutter: photo or video ----------
+
+function camShutter() {
+  if (camMode === 'photo') {
+    camCanvas.toBlob(b => { if (b) showCamPreview(b, 'photo'); }, 'image/jpeg', 0.92);
+  } else if (camRecording) {
+    camStopRecording();
+  } else {
+    camStartRecording();
+  }
+}
+
+function camStartRecording() {
+  if (!window.MediaRecorder) { showMessage('❌ This browser cannot record video'); return; }
+  const out = camCanvas.captureStream(30);
+  if (camStream) camStream.getAudioTracks().forEach(t => out.addTrack(t));
+
+  const types = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported(t));
+  const opts = { videoBitsPerSecond: 2500000 };
+  if (mime) opts.mimeType = mime;
+
+  camChunks = [];
+  camRecorder = new MediaRecorder(out, opts);
+  camRecorder.ondataavailable = e => { if (e.data && e.data.size) camChunks.push(e.data); };
+  camRecorder.onstop = () => {
+    const type = (camRecorder.mimeType || 'video/webm').split(';')[0];
+    showCamPreview(new Blob(camChunks, { type }), 'video');
+  };
+  camRecorder.start(1000);
+
+  camRecording = true;
+  camStartedAt = Date.now();
+  document.getElementById('cam-shutter').classList.add('rec');
+  const timer = document.getElementById('cam-timer');
+  timer.style.display = 'block';
+  camTimerId = setInterval(() => {
+    const s = Math.floor((Date.now() - camStartedAt) / 1000);
+    timer.textContent = '● ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    if (s >= CAM_MAX_SEC) camStopRecording();
+  }, 250);
+}
+
+function camStopRecording() {
+  if (!camRecording) return;
+  camRecording = false;
+  clearInterval(camTimerId);
+  document.getElementById('cam-shutter').classList.remove('rec');
+  document.getElementById('cam-timer').style.display = 'none';
+  try { camRecorder.stop(); } catch (e) {}
+}
+
+// ---------- preview, save, post ----------
+
+function showCamPreview(blob, kind) {
+  camResult = { blob, kind };
+  if (camResultUrl) URL.revokeObjectURL(camResultUrl);
+  camResultUrl = URL.createObjectURL(blob);
+
+  const img = document.getElementById('cam-preview-img');
+  const vid = document.getElementById('cam-preview-video');
+  img.style.display = kind === 'photo' ? 'block' : 'none';
+  vid.style.display = kind === 'video' ? 'block' : 'none';
+  if (kind === 'photo') img.src = camResultUrl;
+  else { vid.src = camResultUrl; vid.play().catch(() => {}); }
+
+  document.getElementById('cam-caption').style.display = kind === 'video' ? 'block' : 'none';
+  document.getElementById('cam-post-btn').style.display = kind === 'video' ? 'block' : 'none';
+  document.getElementById('cam-profile-btn').style.display = kind === 'photo' ? 'block' : 'none';
+  document.getElementById('cam-msg').textContent = '';
+  document.getElementById('cam-preview').style.display = 'flex';
+}
+
+function closeCamPreview() {
+  const p = document.getElementById('cam-preview');
+  if (p) p.style.display = 'none';
+  const vid = document.getElementById('cam-preview-video');
+  if (vid) { vid.pause(); vid.removeAttribute('src'); }
+  camResult = null;
+}
+
+function camSaveToDevice() {
+  if (!camResult) return;
+  const ext = camResult.kind === 'photo' ? 'jpg' : (camResult.blob.type.includes('mp4') ? 'mp4' : 'webm');
+  const a = document.createElement('a');
+  a.href = camResultUrl;
+  a.download = 'loveconnect-' + Date.now() + '.' + ext;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+async function camPostVideo() {
+  if (!camResult || camResult.kind !== 'video') return;
+  const msg = document.getElementById('cam-msg');
+  const caption = document.getElementById('cam-caption').value.trim();
+  const ext = camResult.blob.type.includes('mp4') ? 'mp4' : 'webm';
+  msg.textContent = 'Uploading... ⏳';
+  try {
+    const formData = new FormData();
+    formData.append('video', camResult.blob, 'recording.' + ext);
+    if (caption) formData.append('caption', caption);
+    const res = await fetch(API_URL + '/videos/upload', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + token }, body: formData
+    });
+    if (handleAuthFailure(res.status)) return;
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Upload failed');
+    msg.textContent = '✅ Posted!';
+    document.getElementById('cam-caption').value = '';
+    setTimeout(() => { closeCamera(); showTab('videos'); }, 900);
+  } catch (err) {
+    msg.textContent = '❌ ' + err.message;
+  }
+}
+
+async function camUseAsProfilePhoto() {
+  if (!camResult || camResult.kind !== 'photo') return;
+  const msg = document.getElementById('cam-msg');
+  msg.textContent = 'Saving... ⏳';
+  try {
+    const formData = new FormData();
+    formData.append('photo', camResult.blob, 'photo.jpg');
+    const res = await fetch(API_URL + '/profile/setup', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + token }, body: formData
+    });
+    if (handleAuthFailure(res.status)) return;
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Could not save photo');
+    if (data.profilePicture) currentUser.profilePicture = data.profilePicture;
+    msg.textContent = '✅ Profile photo updated!';
+    setTimeout(() => { closeCamera(); showTab('profile'); }, 900);
+  } catch (err) {
+    msg.textContent = '❌ ' + err.message;
+  }
 }
 
 // ==================== NOTIFICATIONS ====================
