@@ -234,6 +234,11 @@
     .cam-shutter span { display:block; width:54px; height:54px; border-radius:50%; background:white; transition:all .15s; }
     .cam-shutter.rec span { width:28px; height:28px; border-radius:6px; background:#e60023; }
 
+    .world-btn {
+      width: auto; max-width: none; margin: 0; padding: 7px 11px;
+      font-size: 14px; border: none; border-radius: 10px;
+      background: rgba(255,255,255,0.92); color: #333;
+    }
     .feed-search-bar input {
       flex: 1; min-width: 0;
       max-width: none;
@@ -413,19 +418,22 @@
     </div>
 
     <!-- World Screen (full screen) -->
-    <div id="world-screen" style="display:none; position:fixed; inset:0; z-index:9500; flex-direction:column;">
+    <div id="world-screen" style="display:none; position:fixed; inset:0; z-index:9500; flex-direction:column; background:#8fd18a;">
 
-      <div style="display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:8px; padding:10px;">
-        <button onclick="closeWorld()" style="width:auto; padding:8px 14px; margin:0;">←</button>
-        <button class="world-room-btn" data-room="park" onclick="switchWorldRoom('park')" style="width:auto; padding:8px 14px; margin:0;">🌳 Park</button>
-        <button class="world-room-btn" data-room="cafe" onclick="switchWorldRoom('cafe')" style="width:auto; padding:8px 14px; margin:0;">☕ Café</button>
-        <button class="world-room-btn" data-room="beach" onclick="switchWorldRoom('beach')" style="width:auto; padding:8px 14px; margin:0;">🏖️ Beach</button>
-        <button onclick="openMapFromWorld()" style="width:auto; padding:8px 14px; margin:0;">🗺️ Map</button>
+      <div id="world-topbar" style="position:relative; z-index:3; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:6px; padding:8px; background:rgba(0,0,0,0.3);">
+        <button class="world-btn" onclick="closeWorld()">←</button>
+        <button class="world-btn" onclick="goToPlace('plaza')">🏙️ Plaza</button>
+        <button class="world-btn" onclick="goToPlace('park')">🌳 Park</button>
+        <button class="world-btn" onclick="goToPlace('cafe')">☕ Café</button>
+        <button class="world-btn" onclick="goToPlace('beach')">🏖️ Beach</button>
+        <button class="world-btn" onclick="goToPlace('houses')">🏠 Houses</button>
+        <button class="world-btn" onclick="openMapFromWorld()">🗺️ Map</button>
+        <button id="world-exit-car" class="world-btn" onclick="exitWorldCar()" style="display:none; background:#ff4d8d; color:white;">🚗 Get out</button>
       </div>
 
-      <div id="world-stage" style="flex:1; min-height:0; position:relative; display:flex; align-items:center; justify-content:center;">
-        <canvas id="world-canvas" style="touch-action:none; cursor:pointer;"></canvas>
-        <div id="world-talk-prompt" style="display:none; position:absolute; top:10px; left:50%; transform:translateX(-50%); background:white; padding:8px 16px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,0.2); white-space:nowrap;"></div>
+      <div id="world-stage" style="position:absolute; inset:0;">
+        <canvas id="world-canvas" style="display:block; touch-action:none; cursor:pointer;"></canvas>
+        <div id="world-talk-prompt" style="display:none; position:absolute; top:112px; left:50%; transform:translateX(-50%); background:white; padding:8px 16px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,0.2); white-space:nowrap;"></div>
       </div>
 
       <div id="wchat-panel" style="display:none; position:absolute; left:50%; transform:translateX(-50%); bottom:84px; width:min(92vw, 420px); height:min(55vh, 380px); background:white; border-radius:16px; box-shadow:0 6px 24px rgba(0,0,0,0.35); flex-direction:column; overflow:hidden; z-index:5;">
@@ -440,7 +448,7 @@
         </div>
       </div>
 
-      <div style="display:flex; align-items:center; gap:6px; padding:10px; padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px)); box-sizing:border-box; background:rgba(0,0,0,0.25);">
+      <div style="display:flex; align-items:center; gap:6px; padding:10px; padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px)); box-sizing:border-box; background:rgba(0,0,0,0.3); position:relative; z-index:3; margin-top:auto;">
         <button onclick="sendWorldEmote('heart')" style="width:auto; padding:8px 12px; margin:0;">❤️</button>
         <button onclick="sendWorldEmote('wave')" style="width:auto; padding:8px 12px; margin:0;">👋</button>
         <button onclick="sendWorldEmote('dance')" style="width:auto; padding:8px 12px; margin:0;">💃</button>

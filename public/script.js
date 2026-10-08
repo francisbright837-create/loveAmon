@@ -22,7 +22,7 @@ let worldCtx = null;
 let worldUsers = {};
 let worldMoveInterval = null;
 const WORLD_SPEED = 4;
-const WORLD_TALK_DISTANCE = 40;
+const WORLD_TALK_DISTANCE = 90;
 
 // ==================== AUTH FAILURE HANDLING ====================
 
@@ -1339,45 +1339,40 @@ async function loadMapUsers() {
   }
 }
 
-// ==================== WORLD (live moving avatars) ====================
+// ==================== WORLD (big town: houses, cars, places to visit) ====================
 
-const WORLD_W = 600;
-const WORLD_H = 600;   // must match server.js
-const WORLD_PAD = 24;  // avatar centre can't go closer than this to the edge
-
-const WORLD_ROOMS = {
-  park: {
-    label: '🌳 Park',
-    bg: 'linear-gradient(to bottom, #87ceeb 0%, #a8d8a8 60%, #7ba86b 100%)',
-    decor: [['🌳', 70, 165], ['🌳', 530, 135], ['🌷', 300, 500], ['🌷', 150, 450], ['🌷', 470, 465]]
-  },
-  cafe: {
-    label: '☕ Café',
-    bg: 'linear-gradient(to bottom, #f6e6d0 0%, #e2c39b 55%, #b98a5e 100%)',
-    decor: [['☕', 90, 135], ['🌿', 525, 120], ['🥐', 300, 135], ['🍰', 480, 490], ['☕', 110, 490]]
-  },
-  beach: {
-    label: '🏖️ Beach',
-    bg: 'linear-gradient(to bottom, #7fd6f5 0%, #4fb6e0 30%, #f3e2b3 45%, #ecd08f 100%)',
-    decor: [['🌴', 80, 300], ['⛱️', 500, 390], ['🐚', 300, 520], ['🌴', 540, 285], ['🦀', 170, 480]]
-  }
-};
+const WORLD_W = 2400;
+const WORLD_H = 1600;  // must match server.js
+const WORLD_PAD = 24;
 
 const WORLD_EMOTES = { heart: '❤️', wave: '👋', dance: '💃' };
 const WORLD_EMOTE_MS = 2500;
 const WORLD_BUBBLE_MS = 30000;   // chat bubbles stay 30 seconds (or until someone replies)
 const WORLD_TRAIL_MS = 700;
-const WORLD_WALK_SPEED = 190;    // pixels per second
+const WORLD_WALK_SPEED = 230;    // world units per second
+const WORLD_CAR_SPEED = 560;
 
-let worldRoom = 'park';
+// where each "go to" button drops you
+const WORLD_PLACES = {
+  plaza:  { x: 1200, y: 700 },
+  park:   { x: 520,  y: 560 },
+  cafe:   { x: 1600, y: 520 },
+  beach:  { x: 560,  y: 1180 },
+  houses: { x: 1700, y: 1235 }
+};
+
+let worldRoom = 'town';
 let worldAnimFrame = null;
 const worldImages = {}; // url -> { img, ok }
-let worldScale = 1;
+let worldScale = 1, worldZoom = 1, worldDpr = 1;
+let worldViewW = 600, worldViewH = 600, worldCssW = 0, worldCssH = 0, worldMiniY = 70;
+let worldCamX = 0, worldCamY = 0, worldCamSnap = true;
 let worldTarget = null;          // where my avatar is walking to
 let worldPointerDown = false;
 let worldLastMoveSent = 0;
 let worldLastFrame = 0;
 let worldPromptUid = null;
+let worldVehicle = null;         // the car I'm driving (emoji) or null
 
 function isWorldOpen() {
   return document.getElementById('world-screen').style.display !== 'none';
@@ -1399,7 +1394,7 @@ function openWorld() {
   worldCtx = canvas.getContext('2d');
   worldTarget = null;
   worldLastFrame = 0;
-  applyWorldRoomStyle();
+  worldCamSnap = true;
   fitWorldCanvas();
   setupWorldPointer();
 
@@ -1408,20 +1403,18 @@ function openWorld() {
 
     worldSocket.on('connect', joinWorld);
 
-    // Full list of everyone in MY room (sent on join, room change, and when someone arrives)
+    // Full list of everyone in the town (sent on join and when someone arrives)
     worldSocket.on('world:state', ({ room, users }) => {
-      const roomChanged = room !== worldRoom;
       worldRoom = room;
-      if (roomChanged) worldTarget = null;
-      applyWorldRoomStyle();
-
       const next = {};
       users.forEach(u => {
-        const old = !roomChanged ? worldUsers[u.userId] : null;
+        const old = worldUsers[u.userId];
+        const isMe = u.userId === currentUser.id;
         // while I'm walking, trust my own position over the server's older copy
-        const keep = (u.userId === currentUser.id && old && worldTarget) ? { x: old.x, y: old.y } : null;
+        const keep = (isMe && old && worldTarget) ? { x: old.x, y: old.y } : null;
         const merged = Object.assign(old || { dx: u.x, dy: u.y, trail: [], phase: 0 }, u);
         if (keep) Object.assign(merged, keep);
+        if (isMe) merged.vehicle = worldVehicle;
         next[u.userId] = merged;
       });
       worldUsers = next;
@@ -1436,6 +1429,11 @@ function openWorld() {
     worldSocket.on('world:userLeft', ({ userId }) => {
       delete worldUsers[userId];
       checkWorldProximity();
+    });
+
+    worldSocket.on('world:vehicle', ({ userId, vehicle }) => {
+      const u = worldUsers[userId];
+      if (u && userId !== currentUser.id) u.vehicle = vehicle || null;
     });
 
     worldSocket.on('world:emote', ({ userId, emote }) => {
@@ -1465,6 +1463,9 @@ function leaveWorld() {
   worldTarget = null;
   worldPointerDown = false;
   worldPromptUid = null;
+  worldVehicle = null;
+  const exitBtn = document.getElementById('world-exit-car');
+  if (exitBtn) exitBtn.style.display = 'none';
 
   // tell the server we left so our avatar doesn't stay standing there (it also saves our position)
   if (worldSocket && worldSocket.connected) worldSocket.emit('world:leave');
@@ -1481,52 +1482,84 @@ function openMapFromWorld() {
   openMap();
 }
 
-// ---------- full-screen sizing ----------
+// ---------- full-screen canvas + camera zoom ----------
 
 function fitWorldCanvas() {
   const stage = document.getElementById('world-stage');
   const canvas = document.getElementById('world-canvas');
   if (!stage || !canvas) return;
-  const s = Math.min(stage.clientWidth / WORLD_W, stage.clientHeight / WORLD_H);
-  if (!(s > 0)) return;
-  const dpr = window.devicePixelRatio || 1;
-  canvas.style.width = Math.floor(WORLD_W * s) + 'px';
-  canvas.style.height = Math.floor(WORLD_H * s) + 'px';
-  canvas.width = Math.floor(WORLD_W * s * dpr);
-  canvas.height = Math.floor(WORLD_H * s * dpr);
-  worldScale = canvas.width / WORLD_W;
+  const w = stage.clientWidth, h = stage.clientHeight;
+  if (!(w > 0 && h > 0)) return;
+
+  worldDpr = window.devicePixelRatio || 1;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  canvas.width = Math.floor(w * worldDpr);
+  canvas.height = Math.floor(h * worldDpr);
+
+  worldCssW = w; worldCssH = h;
+  worldZoom = Math.min(1.35, Math.max(0.65, Math.min(w, h) / 640));
+  worldScale = worldZoom * worldDpr;
+  worldViewW = w / worldZoom;
+  worldViewH = h / worldZoom;
+
+  const bar = document.getElementById('world-topbar');
+  worldMiniY = (bar ? bar.offsetHeight : 56) + 8;
 }
 window.addEventListener('resize', () => { if (isWorldOpen()) fitWorldCanvas(); });
 
-// ---------- rooms ----------
+// ---------- places, cars ----------
 
-function switchWorldRoom(room) {
-  if (!worldSocket || room === worldRoom || !WORLD_ROOMS[room]) return;
-  worldSocket.emit('world:switchRoom', { room });
+function goToPlace(key) {
+  const me = worldUsers[currentUser.id];
+  const p = WORLD_PLACES[key];
+  if (!me || !p || !worldSocket) return;
+  me.x = p.x + (Math.random() * 60 - 30);
+  me.y = p.y + (Math.random() * 30 - 15);
+  me.dx = me.x; me.dy = me.y;
+  worldTarget = null;
+  worldCamSnap = true;
+  worldSocket.emit('world:move', { x: me.x, y: me.y });
+  checkWorldProximity();
 }
 
-function applyWorldRoomStyle() {
-  const screen = document.getElementById('world-screen');
-  const room = WORLD_ROOMS[worldRoom] || WORLD_ROOMS.park;
-  if (screen) screen.style.background = room.bg;
+function enterWorldCar(car) {
+  const me = worldUsers[currentUser.id];
+  if (!me || !worldSocket) return;
+  if (Math.hypot(me.x - car.x, me.y - car.y) > 170) {
+    showMessage('🚗 Walk closer to the car first');
+    return;
+  }
+  worldVehicle = car.e;
+  me.vehicle = car.e;
+  worldTarget = null;
+  worldSocket.emit('world:vehicle', { vehicle: car.e });
+  document.getElementById('world-exit-car').style.display = 'inline-block';
+}
 
-  document.querySelectorAll('.world-room-btn').forEach(btn => {
-    const active = btn.dataset.room === worldRoom;
-    btn.style.background = active ? '#ff4d8d' : 'rgba(255,255,255,0.85)';
-    btn.style.color = active ? 'white' : '#333';
-  });
+function exitWorldCar() {
+  const me = worldUsers[currentUser.id];
+  worldVehicle = null;
+  if (me) me.vehicle = null;
+  if (worldSocket) worldSocket.emit('world:vehicle', { vehicle: null });
+  document.getElementById('world-exit-car').style.display = 'none';
 }
 
 // ---------- movement: mouse / touch only ----------
 
+function worldEventPoint(e) {
+  const r = document.getElementById('world-canvas').getBoundingClientRect();
+  return {
+    x: worldCamX + (e.clientX - r.left) / worldZoom,
+    y: worldCamY + (e.clientY - r.top) / worldZoom
+  };
+}
+
 function worldPointToTarget(e) {
-  const canvas = document.getElementById('world-canvas');
-  const r = canvas.getBoundingClientRect();
-  const x = (e.clientX - r.left) * WORLD_W / r.width;
-  const y = (e.clientY - r.top) * WORLD_H / r.height;
+  const p = worldEventPoint(e);
   worldTarget = {
-    x: Math.min(WORLD_W - WORLD_PAD, Math.max(WORLD_PAD, x)),
-    y: Math.min(WORLD_H - WORLD_PAD, Math.max(WORLD_PAD, y))
+    x: Math.min(WORLD_W - WORLD_PAD, Math.max(WORLD_PAD, p.x)),
+    y: Math.min(WORLD_H - WORLD_PAD, Math.max(WORLD_PAD, p.y))
   };
 }
 
@@ -1538,13 +1571,16 @@ function setupWorldPointer() {
   // tap/click = walk there; hold and drag = keep steering
   canvas.addEventListener('pointerdown', e => {
     e.preventDefault();
+    const p = worldEventPoint(e);
+
     // tapping another character opens a chat with them (you stay in the game)
-    const r = canvas.getBoundingClientRect();
-    const px = (e.clientX - r.left) * WORLD_W / r.width;
-    const py = (e.clientY - r.top) * WORLD_H / r.height;
     const hit = Object.values(worldUsers).find(u =>
-      u.userId !== currentUser.id && Math.hypot(u.dx - px, u.dy - py) < 26);
+      u.userId !== currentUser.id && Math.hypot(u.dx - p.x, u.dy - p.y) < 30);
     if (hit) { openWorldChat(hit.userId, hit.name); return; }
+
+    // tapping a parked car hops in (walk close first)
+    const car = WORLD_PARKED_CARS.find(c => Math.hypot(c.x - p.x, c.y - p.y) < 40);
+    if (car && !worldVehicle) { enterWorldCar(car); return; }
 
     worldPointerDown = true;
     if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
@@ -1569,17 +1605,23 @@ function updateWorldMovement(now) {
   const dx = worldTarget.x - me.x;
   const dy = worldTarget.y - me.y;
   const dist = Math.hypot(dx, dy);
-  const step = WORLD_WALK_SPEED * dt;
+  const step = (worldVehicle ? WORLD_CAR_SPEED : WORLD_WALK_SPEED) * dt;
   const arrived = dist <= step;
+  let nx = arrived ? worldTarget.x : me.x + dx / dist * step;
+  let ny = arrived ? worldTarget.y : me.y + dy / dist * step;
 
-  if (arrived) {
-    me.x = worldTarget.x;
-    me.y = worldTarget.y;
-    worldTarget = null;
-  } else {
-    me.x += dx / dist * step;
-    me.y += dy / dist * step;
+  // houses, the pond and the sea are solid: slide along them instead of walking through
+  if (!worldBlocked(me.x, me.y) && worldBlocked(nx, ny)) {
+    if (!worldBlocked(nx, me.y)) ny = me.y;
+    else if (!worldBlocked(me.x, ny)) nx = me.x;
+    else { worldTarget = null; return; }
   }
+
+  const moved = Math.hypot(nx - me.x, ny - me.y);
+  if (Math.abs(nx - me.x) > 0.01) me.face = nx > me.x ? 1 : -1;
+  me.x = nx;
+  me.y = ny;
+  if (arrived || moved < step * 0.25) worldTarget = null; // got there, or pushed against a wall
 
   if (arrived || now - worldLastMoveSent > 50) {
     worldSocket.emit('world:move', { x: me.x, y: me.y });
@@ -1846,37 +1888,281 @@ function drawWorldEmote(ctx, u, now) {
   ctx.restore();
 }
 
+// ---------- the town map ----------
+
+const WORLD_EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif';
+
+const WORLD_BUILDINGS = [];
+['#f4a6a6', '#a6c8f4', '#f4e0a6', '#b6e3b0', '#d9b6f0', '#f4c8a6'].forEach((color, i) => {
+  const col = i % 3, row = Math.floor(i / 3);
+  WORLD_BUILDINGS.push({
+    x: 1400 + col * 280, y: row ? 1340 : 1060, w: 200, h: 140, color,
+    roof: 'tri', roofH: 70, roofColor: ['#a8453a', '#3a5ca8', '#8a6d2f'][col], label: 'Home ' + (i + 1)
+  });
+});
+WORLD_BUILDINGS.push(
+  { x: 1500, y: 220, w: 320, h: 180, color: '#e8c9a0', roof: 'flat', roofH: 0, roofColor: '#c0392b', sign: '☕', label: 'Café' },
+  { x: 1880, y: 250, w: 200, h: 150, color: '#f2b8a0', roof: 'flat', roofH: 0, roofColor: '#27ae60', sign: '🍕', label: 'Pizza' },
+  { x: 2130, y: 270, w: 170, h: 130, color: '#b8c8f2', roof: 'flat', roofH: 0, roofColor: '#2980b9', sign: '🛍️', label: 'Shop' },
+  { x: 760,  y: 1040, w: 180, h: 120, color: '#ffd9a0', roof: 'flat', roofH: 0, roofColor: '#e67e22', sign: '🍹', label: 'Beach Bar' }
+);
+
+// things you can't walk through: buildings, the pond, the sea
+const WORLD_SOLIDS = WORLD_BUILDINGS.map(b => ({ x: b.x, y: b.y - b.roofH, w: b.w, h: b.h + b.roofH }));
+WORLD_SOLIDS.push({ x: 395, y: 275, w: 210, h: 110 }, { x: 0, y: 1345, w: 1140, h: 255 });
+
+// cars you can hop into (tap one while standing close)
+const WORLD_PARKED_CARS = [
+  { e: '🚗', x: 1500, y: 1235 }, { e: '🚙', x: 1780, y: 1235 }, { e: '🚕', x: 2060, y: 1235 },
+  { e: '🚓', x: 1480, y: 716 },  { e: '🏎️', x: 1900, y: 716 },  { e: '🚌', x: 760, y: 716 }
+];
+
+// cars driving around the roads for everyone to see (position comes from the clock, so it matches)
+const WORLD_TRAFFIC = [
+  { e: '🚕', lane: 'E', off: 0,    sp: 150 }, { e: '🚙', lane: 'E', off: 1100, sp: 125 },
+  { e: '🚌', lane: 'W', off: 300,  sp: 110 }, { e: '🚗', lane: 'W', off: 1500, sp: 150 },
+  { e: '🚓', lane: 'S', off: 200,  sp: 140 }, { e: '🏎️', lane: 'N', off: 700,  sp: 175 }
+];
+
+const WORLD_DECOR = (() => {
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const out = [];
+  const put = (e, x0, y0, x1, y1, n, s, avoid) => {
+    for (let i = 0; i < n; i++) {
+      const x = x0 + rnd() * (x1 - x0), y = y0 + rnd() * (y1 - y0);
+      if (avoid && avoid(x, y)) continue;
+      out.push({ e, x, y, s });
+    }
+  };
+  const inPond = (x, y) => x > 350 && x < 650 && y > 230 && y < 430;
+  const nearBar = (x, y) => x > 730 && x < 970 && y > 960 && y < 1190;
+
+  put('🌳', 100, 100, 1000, 660, 26, 56, inPond);
+  put('🌲', 100, 100, 1000, 660, 12, 56, inPond);
+  put('🌷', 100, 100, 1000, 660, 26, 26, inPond);
+  put('🌼', 100, 100, 1000, 660, 18, 24, inPond);
+  put('🌴', 100, 990, 1020, 1300, 14, 64, nearBar);
+  put('⛱️', 120, 1000, 1000, 1300, 6, 52, nearBar);
+  put('🐚', 100, 1000, 1020, 1320, 10, 24, nearBar);
+  put('🌳', 2210, 970, 2330, 1530, 6, 56);
+  put('🌳', 1345, 970, 1385, 1530, 4, 56);
+  put('🌷', 1350, 1210, 2330, 1260, 14, 24);
+  [['🪴', 1070, 710], ['🪴', 1330, 710], ['🪴', 1070, 930], ['🪴', 1330, 930],
+   ['🪑', 380, 450], ['🪑', 620, 450], ['🪑', 500, 200]].forEach(([e, x, y]) => out.push({ e, x, y, s: 36 }));
+  return out;
+})();
+
+function worldBlocked(x, y) {
+  for (const r of WORLD_SOLIDS) {
+    if (x > r.x - 12 && x < r.x + r.w + 12 && y > r.y - 8 && y < r.y + r.h + 14) return true;
+  }
+  return false;
+}
+
+function worldTrafficPos(c, t) {
+  const span = (c.lane === 'E' || c.lane === 'W' ? WORLD_W : WORLD_H) + 240;
+  const d = (t * c.sp + c.off) % span;
+  if (c.lane === 'E') return { x: d - 120, y: 795, flip: true, rot: 0 };
+  if (c.lane === 'W') return { x: WORLD_W + 120 - d, y: 845, flip: false, rot: 0 };
+  if (c.lane === 'S') return { x: 1170, y: d - 120, flip: false, rot: -Math.PI / 2 };
+  return { x: 1230, y: WORLD_H + 120 - d, flip: false, rot: Math.PI / 2 };
+}
+
+function drawWorldCarEmoji(ctx, e, x, y, size, flip, rot) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (rot) ctx.rotate(rot);
+  if (flip) ctx.scale(-1, 1);
+  ctx.font = size + 'px ' + WORLD_EMOJI_FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(e, 0, 0);
+  ctx.restore();
+}
+
+function drawWorldGround(ctx, t) {
+  ctx.fillStyle = '#8fd18a'; ctx.fillRect(0, 0, WORLD_W, WORLD_H);          // grass
+  ctx.fillStyle = '#a3e29a'; ctx.fillRect(60, 60, 980, 620);                // park
+  ctx.fillStyle = '#e9d9bf'; ctx.fillRect(1340, 60, 1000, 620);             // café street
+  ctx.fillStyle = '#a6e29a'; ctx.fillRect(1340, 960, 1000, 580);            // neighbourhood
+  ctx.fillStyle = '#f3e2b3'; ctx.fillRect(60, 960, 980, 385);               // beach sand
+  ctx.fillStyle = '#d9d4c7'; ctx.fillRect(1040, 680, 320, 280);             // plaza
+
+  // sea with moving waves
+  ctx.fillStyle = '#3fa9dc'; ctx.fillRect(0, 1340, 1140, 260);
+  ctx.lineWidth = 4;
+  for (let k = 0; k < 4; k++) {
+    ctx.strokeStyle = k === 0 ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.3)';
+    ctx.beginPath();
+    for (let x = 0; x <= 1140; x += 30) {
+      const y = 1340 + k * 60 + Math.sin(t * 2 + x / 40 + k) * 5;
+      if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // pond
+  ctx.fillStyle = '#7ec8ef';
+  ctx.beginPath(); ctx.ellipse(500, 330, 125, 72, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#58b9ea';
+  ctx.beginPath(); ctx.ellipse(500, 330, 108, 58, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2;
+  const rip = (t % 3) / 3;
+  ctx.beginPath(); ctx.ellipse(470, 320, 10 + rip * 40, 5 + rip * 20, 0, 0, Math.PI * 2); ctx.stroke();
+
+  // roads
+  ctx.fillStyle = '#4a4a55';
+  ctx.fillRect(0, 760, WORLD_W, 120);
+  ctx.fillRect(1140, 0, 120, WORLD_H);
+  ctx.fillStyle = '#4a4a55'; ctx.fillRect(1140, 760, 120, 120);
+  ctx.strokeStyle = '#f2f2f2'; ctx.lineWidth = 4; ctx.setLineDash([30, 26]);
+  ctx.beginPath();
+  ctx.moveTo(0, 820); ctx.lineTo(1140, 820); ctx.moveTo(1260, 820); ctx.lineTo(WORLD_W, 820);
+  ctx.moveTo(1200, 0); ctx.lineTo(1200, 760); ctx.moveTo(1200, 880); ctx.lineTo(1200, WORLD_H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // zone names painted on the ground
+  ctx.font = 'bold 54px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(0,0,0,0.13)';
+  ctx.fillText('🌳 Park', 550, 125);
+  ctx.fillText('☕ Café Street', 1840, 130);
+  ctx.fillText('🏖️ Beach', 420, 1010);
+  ctx.fillText('🏠 Neighbourhood', 1840, 1515);
+}
+
+function drawWorldBuilding(ctx, b) {
+  const { x, y, w, h } = b;
+  ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(x + 6, y + h - 4, w, 10);
+  ctx.fillStyle = b.color; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+
+  if (b.roof === 'tri') {
+    ctx.fillStyle = b.roofColor;
+    ctx.beginPath(); ctx.moveTo(x - 12, y); ctx.lineTo(x + w / 2, y - b.roofH); ctx.lineTo(x + w + 12, y); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else {
+    for (let i = 0; i * 20 < w; i++) {
+      ctx.fillStyle = i % 2 ? '#ffffff' : b.roofColor;
+      ctx.fillRect(x + i * 20, y, Math.min(20, w - i * 20), 26);
+    }
+  }
+
+  const wy = y + (b.roof === 'tri' ? 24 : 46);
+  ctx.fillStyle = 'rgba(180,225,255,0.95)';
+  ctx.fillRect(x + 16, wy, 38, 34); ctx.fillRect(x + w - 54, wy, 38, 34);
+  ctx.strokeRect(x + 16, wy, 38, 34); ctx.strokeRect(x + w - 54, wy, 38, 34);
+
+  ctx.fillStyle = '#6b4226'; ctx.fillRect(x + w / 2 - 16, y + h - 52, 32, 52);
+  ctx.fillStyle = '#ffd24d'; ctx.beginPath(); ctx.arc(x + w / 2 + 9, y + h - 26, 3, 0, Math.PI * 2); ctx.fill();
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  if (b.sign) { ctx.font = '40px ' + WORLD_EMOJI_FONT; ctx.fillText(b.sign, x + w / 2, y + 70); }
+
+  ctx.font = 'bold 15px Arial';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.fillStyle = 'white';
+  ctx.strokeText(b.label, x + w / 2, y - b.roofH - 12);
+  ctx.fillText(b.label, x + w / 2, y - b.roofH - 12);
+}
+
+function drawWorldAvatar(ctx, u, now) {
+  const isMe = u.userId === currentUser.id;
+  const dancing = u.emote && u.emote.type === 'dance';
+
+  let bob = 0, tilt = 0;
+  if (dancing) {
+    bob = -Math.abs(Math.sin(now / 120)) * 8;
+    tilt = Math.sin(now / 90) * 0.35;
+  } else if (u.moving) {
+    bob = -Math.abs(Math.sin(u.phase)) * 4;
+    tilt = Math.sin(u.phase) * 0.15;
+  }
+
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(u.dx, u.dy + 19, (u.vehicle ? 26 : 15) + bob * 0.4, 5 + bob * 0.15, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (u.vehicle) {
+    drawWorldCarEmoji(ctx, u.vehicle, u.dx, u.dy + 8, 60, (u.face || -1) > 0, 0);
+  }
+
+  ctx.save();
+  ctx.translate(u.dx, u.dy + bob - (u.vehicle ? 22 : 0));
+  ctx.rotate(u.vehicle ? 0 : tilt);
+  if (u.vehicle) ctx.scale(0.7, 0.7);
+
+  ctx.beginPath();
+  ctx.arc(0, 0, 18, 0, Math.PI * 2);
+  ctx.fillStyle = isMe ? '#ff4d8d' : '#4d7cff';
+  ctx.fill();
+  ctx.strokeStyle = 'white';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  const img = u.profilePicture ? getWorldImage(u.profilePicture) : null;
+  if (img) {
+    ctx.beginPath();
+    ctx.arc(0, 0, 15, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(img, -15, -15, 30, 30);
+  }
+  ctx.restore();
+
+  ctx.fillStyle = '#222';
+  ctx.font = 'bold 12px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+  ctx.strokeText(u.name, u.dx, u.dy + (u.vehicle ? 46 : 36));
+  ctx.fillText(u.name, u.dx, u.dy + (u.vehicle ? 46 : 36));
+}
+
+function drawWorldMinimap(ctx) {
+  ctx.setTransform(worldDpr, 0, 0, worldDpr, 0, 0);
+  const mw = 120, mh = Math.round(120 * WORLD_H / WORLD_W), mx = 10, my = worldMiniY;
+  const sx = mw / WORLD_W, sy = mh / WORLD_H;
+
+  ctx.save();
+  ctx.globalAlpha = 0.88;
+  ctx.fillStyle = '#8fd18a'; ctx.fillRect(mx, my, mw, mh);
+  ctx.fillStyle = '#3fa9dc'; ctx.fillRect(mx, my + 1340 * sy, 1140 * sx, 260 * sy);
+  ctx.fillStyle = '#4a4a55';
+  ctx.fillRect(mx, my + 760 * sy, mw, 120 * sy);
+  ctx.fillRect(mx + 1140 * sx, my, 120 * sx, mh);
+  ctx.fillStyle = '#c0785a';
+  WORLD_BUILDINGS.forEach(b => ctx.fillRect(mx + b.x * sx, my + b.y * sy, Math.max(2, b.w * sx), Math.max(2, b.h * sy)));
+  ctx.restore();
+
+  Object.values(worldUsers).forEach(u => {
+    const isMe = u.userId === currentUser.id;
+    ctx.fillStyle = isMe ? '#ff1f6b' : '#2f5dff';
+    ctx.beginPath();
+    ctx.arc(mx + u.dx * sx, my + u.dy * sy, isMe ? 4 : 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 2;
+  ctx.strokeRect(mx, my, mw, mh);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(mx + worldCamX * sx, my + worldCamY * sy, Math.min(mw, worldViewW * sx), Math.min(mh, worldViewH * sy));
+}
+
 function drawWorld() {
-  if (!worldCtx) return;
+  if (!worldCtx || !worldCssW) return;
   const ctx = worldCtx;
   const now = performance.now();
+  const t = Date.now() / 1000;
   const users = Object.values(worldUsers);
 
   updateWorldMovement(now);
-  ctx.setTransform(worldScale, 0, 0, worldScale, 0, 0);
-  ctx.clearRect(0, 0, WORLD_W, WORLD_H);
 
-  // scenery for this room
-  const room = WORLD_ROOMS[worldRoom] || WORLD_ROOMS.park;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = '30px serif';
-  room.decor.forEach(([emoji, x, y]) => ctx.fillText(emoji, x, y));
-
-  // boundary wall (avatars can't cross this)
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-  worldRoundRect(ctx, 3, 3, WORLD_W - 6, WORLD_H - 6, 14);
-  ctx.stroke();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-  worldRoundRect(ctx, 6, 6, WORLD_W - 12, WORLD_H - 12, 12);
-  ctx.stroke();
-
-  // update animation state: glide towards the real position, detect walking, record trail
+  // animation state: glide towards the real position, detect walking, record trail
   users.forEach(u => {
     if (u.dx === undefined) { u.dx = u.x; u.dy = u.y; }
     if (!u.trail) u.trail = [];
+    if (Math.abs(u.x - u.dx) > 0.5) u.face = u.x > u.dx ? 1 : -1;
     u.dx += (u.x - u.dx) * 0.35;
     u.dy += (u.y - u.dy) * 0.35;
     u.moving = Math.hypot(u.x - u.dx, u.y - u.dy) > 0.6;
@@ -1890,6 +2176,25 @@ function drawWorld() {
     }
     while (u.trail.length && now - u.trail[0].t > WORLD_TRAIL_MS) u.trail.shift();
   });
+
+  // the camera follows me
+  const me = worldUsers[currentUser.id];
+  if (me) {
+    const tx = Math.min(Math.max(0, me.dx - worldViewW / 2), Math.max(0, WORLD_W - worldViewW));
+    const ty = Math.min(Math.max(0, me.dy - worldViewH / 2), Math.max(0, WORLD_H - worldViewH));
+    if (worldCamSnap) { worldCamX = tx; worldCamY = ty; worldCamSnap = false; }
+    else { worldCamX += (tx - worldCamX) * 0.18; worldCamY += (ty - worldCamY) * 0.18; }
+  }
+
+  ctx.setTransform(worldDpr, 0, 0, worldDpr, 0, 0);
+  ctx.fillStyle = '#2d6a3e';
+  ctx.fillRect(0, 0, worldCssW, worldCssH);
+  ctx.setTransform(worldScale, 0, 0, worldScale, -worldCamX * worldScale, -worldCamY * worldScale);
+
+  const vx0 = worldCamX - 140, vy0 = worldCamY - 160, vx1 = worldCamX + worldViewW + 140, vy1 = worldCamY + worldViewH + 140;
+  const inView = (x, y) => x > vx0 && x < vx1 && y > vy0 && y < vy1;
+
+  drawWorldGround(ctx, t);
 
   // fading trail
   users.forEach(u => {
@@ -1905,60 +2210,39 @@ function drawWorld() {
   });
   ctx.globalAlpha = 1;
 
-  // avatars, back-to-front so lower ones overlap higher ones
-  users.sort((a, b) => a.dy - b.dy).forEach(u => {
-    const isMe = u.userId === currentUser.id;
-    const dancing = u.emote && u.emote.type === 'dance';
-
-    let bob = 0;
-    let tilt = 0;
-    if (dancing) {
-      bob = -Math.abs(Math.sin(now / 120)) * 8;
-      tilt = Math.sin(now / 90) * 0.35;
-    } else if (u.moving) {
-      bob = -Math.abs(Math.sin(u.phase)) * 4;
-      tilt = Math.sin(u.phase) * 0.15;
-    }
-
-    // ground shadow (shrinks as the avatar hops)
-    ctx.fillStyle = 'rgba(0,0,0,0.15)';
-    ctx.beginPath();
-    ctx.ellipse(u.dx, u.dy + 19, 15 + bob * 0.4, 5 + bob * 0.15, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.save();
-    ctx.translate(u.dx, u.dy + bob);
-    ctx.rotate(tilt);
-
-    ctx.beginPath();
-    ctx.arc(0, 0, 18, 0, Math.PI * 2);
-    ctx.fillStyle = isMe ? '#ff4d8d' : '#4d7cff';
-    ctx.fill();
-    ctx.strokeStyle = 'white';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    const img = u.profilePicture ? getWorldImage(u.profilePicture) : null;
-    if (img) {
-      ctx.beginPath();
-      ctx.arc(0, 0, 15, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(img, -15, -15, 30, 30);
-    }
-    ctx.restore();
-
-    ctx.fillStyle = '#333';
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(u.name, u.dx, u.dy + 36);
+  // everything that stands on the ground, drawn back-to-front
+  const items = [];
+  WORLD_DECOR.forEach(d => {
+    if (!inView(d.x, d.y)) return;
+    items.push({ y: d.y + d.s * 0.4, draw: () => {
+      ctx.font = d.s + 'px ' + WORLD_EMOJI_FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(d.e, d.x, d.y);
+    } });
   });
+  WORLD_BUILDINGS.forEach(b => {
+    if (b.x > vx1 || b.x + b.w < vx0 || b.y - b.roofH > vy1 || b.y + b.h < vy0) return;
+    items.push({ y: b.y + b.h, draw: () => drawWorldBuilding(ctx, b) });
+  });
+  WORLD_PARKED_CARS.forEach(c => {
+    if (!inView(c.x, c.y)) return;
+    items.push({ y: c.y, draw: () => drawWorldCarEmoji(ctx, c.e, c.x, c.y, 52, false, 0) });
+  });
+  WORLD_TRAFFIC.forEach(c => {
+    const p = worldTrafficPos(c, t);
+    if (!inView(p.x, p.y)) return;
+    items.push({ y: p.y, draw: () => drawWorldCarEmoji(ctx, c.e, p.x, p.y, 48, p.flip, p.rot) });
+  });
+  users.forEach(u => items.push({ y: u.dy + 19, draw: () => drawWorldAvatar(ctx, u, now) }));
+
+  items.sort((a, b) => a.y - b.y).forEach(it => it.draw());
 
   // bubbles and emotes on top of everybody
   users.forEach(u => {
     if (u.bubble) drawWorldBubble(ctx, u, now);
     if (u.emote) drawWorldEmote(ctx, u, now);
   });
+
+  drawWorldMinimap(ctx);
 }
 
 // ==================== CAMERA (photos, videos, AI environments & characters) ====================

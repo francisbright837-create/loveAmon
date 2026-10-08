@@ -139,12 +139,13 @@ app.use((err, req, res, next) => {
 // leave the world / disconnect (to remember where they were standing) and once when they join.
 // There are no DB writes while people are walking around.
 
-const WORLD_W = 600;
-const WORLD_H = 600;
+const WORLD_W = 2400;
+const WORLD_H = 1600;
 const WORLD_PAD = 24;                              // must match the client
-const WORLD_ROOMS = ["park", "cafe", "beach"];     // must match the client
+const WORLD_ROOMS = ["town"];                      // one big shared town
 const WORLD_EMOTES = ["heart", "wave", "dance"];   // must match the client
-const CHAT_RANGE = 300;                            // chat bubbles are only sent to people this close
+const WORLD_VEHICLES = ["🚗", "🚕", "🚙", "🏎️", "🚓", "🚌"]; // must match the client
+const CHAT_RANGE = 500;                            // chat bubbles are only sent to people this close
 
 const worldPositionSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
@@ -164,14 +165,14 @@ const worldUsers = new Map(); // socket.id -> { userId, name, profilePicture, ro
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 const roomKey = (room) => "world:" + room;
 const randomSpawn = () => ({
-  x: 250 + Math.floor(Math.random() * 100),
-  y: 250 + Math.floor(Math.random() * 100)
+  x: 1100 + Math.floor(Math.random() * 200),   // the plaza
+  y: 690 + Math.floor(Math.random() * 40)
 });
 
 function roomState(room) {
   return Array.from(worldUsers.values())
     .filter(u => u.room === room)
-    .map(({ userId, name, profilePicture, x, y }) => ({ userId, name, profilePicture, x, y }));
+    .map(({ userId, name, profilePicture, x, y, vehicle }) => ({ userId, name, profilePicture, x, y, vehicle: vehicle || null }));
 }
 
 function broadcastRoomState(room) {
@@ -238,9 +239,9 @@ io.on("connection", (socket) => {
     }
     if (!socket.connected || worldUsers.has(socket.id)) return; // left/duplicated while we were loading
 
-    const room = saved && WORLD_ROOMS.includes(saved.room) ? saved.room : "park";
+    const room = "town";
     const spawn = randomSpawn();
-    const hasSpot = saved && Number.isFinite(saved.x) && Number.isFinite(saved.y);
+    const hasSpot = saved && saved.room === "town" && Number.isFinite(saved.x) && Number.isFinite(saved.y);
 
     worldUsers.set(socket.id, {
       userId: socket.userId,
@@ -249,6 +250,7 @@ io.on("connection", (socket) => {
       room,
       x: hasSpot ? clamp(saved.x, WORLD_PAD, WORLD_W - WORLD_PAD) : spawn.x,
       y: hasSpot ? clamp(saved.y, WORLD_PAD, WORLD_H - WORLD_PAD) : spawn.y,
+      vehicle: null,
       lastChat: 0,
       lastEmote: 0
     });
@@ -299,6 +301,13 @@ io.on("connection", (socket) => {
     user.lastEmote = now;
 
     io.to(roomKey(user.room)).emit("world:emote", { userId: user.userId, emote });
+  });
+
+  socket.on("world:vehicle", ({ vehicle } = {}) => {
+    const user = worldUsers.get(socket.id);
+    if (!user) return;
+    user.vehicle = WORLD_VEHICLES.includes(vehicle) ? vehicle : null;
+    socket.to(roomKey(user.room)).emit("world:vehicle", { userId: user.userId, vehicle: user.vehicle });
   });
 
   socket.on("world:chat", ({ text } = {}) => {
