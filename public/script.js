@@ -87,15 +87,11 @@ function toggleForm() {
     btn.textContent = 'Log In';
     toggleText.innerHTML = 'No account yet? <a href="#" onclick="toggleForm()">Sign Up</a>';
     document.getElementById('name').style.display = 'none';
-    document.getElementById('gender').style.display = 'none';
-    document.getElementById('interest').style.display = 'none';
   } else {
     title.textContent = 'Sign Up';
     btn.textContent = 'Sign Up';
     toggleText.innerHTML = 'Already have an account? <a href="#" onclick="toggleForm()">Log In</a>';
     document.getElementById('name').style.display = 'block';
-    document.getElementById('gender').style.display = 'block';
-    document.getElementById('interest').style.display = 'block';
   }
   hideMessage();
 }
@@ -115,21 +111,19 @@ async function submitForm() {
     await doLogin(email, password);
   } else {
     const name = document.getElementById('name')?.value?.trim();
-    const gender = document.getElementById('gender')?.value;
-    const interest = document.getElementById('interest')?.value;
 
-    if (!name || !gender || !interest) {
+    if (!name) {
       showMessage('❌ Please fill in all fields');
       return;
     }
 
-    await doRegister(name, email, password, gender, interest);
+    await doRegister(name, email, password);
   }
 }
 
 // ==================== REGISTER ====================
 
-async function doRegister(name, email, password, gender, interest) {
+async function doRegister(name, email, password) {
   setLoading(true);
   showMessage('Creating account...', 'loading');
 
@@ -141,7 +135,7 @@ async function doRegister(name, email, password, gender, interest) {
     const res = await fetch(API_URL + '/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, gender, interest })
+      body: JSON.stringify({ name, email, password })
     });
 
     clearTimeout(slowTimer);
@@ -155,8 +149,6 @@ async function doRegister(name, email, password, gender, interest) {
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('name').value = '';
-    document.getElementById('gender').value = '';
-    document.getElementById('interest').value = '';
 
     setTimeout(() => { toggleForm(); }, 2000);
 
@@ -2462,8 +2454,6 @@ function logout() {
   document.getElementById('form-title').textContent = 'Sign Up';
   document.getElementById('submit-btn').textContent = 'Sign Up';
   document.getElementById('name').style.display = 'block';
-  document.getElementById('gender').style.display = 'block';
-  document.getElementById('interest').style.display = 'block';
 }
 
 // ==================== INIT ====================

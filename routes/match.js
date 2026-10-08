@@ -20,15 +20,9 @@ router.get("/profiles", async (req, res) => {
     // liking someone no longer removes them from the browse feed
     const excludeIds = [req.userId, ...currentUser.matches];
 
-    let genderFilter = {};
-    if (currentUser.interest && currentUser.interest !== "both") {
-      genderFilter = { gender: currentUser.interest };
-    }
-
     const [profiles, total] = await Promise.all([
       User.find({
-        _id: { $nin: excludeIds },
-        ...genderFilter
+        _id: { $nin: excludeIds }
       })
       .select("-password -likes -matches -__v")
       .skip(skip)
@@ -36,8 +30,7 @@ router.get("/profiles", async (req, res) => {
       .lean(),
 
       User.countDocuments({
-        _id: { $nin: excludeIds },
-        ...genderFilter
+        _id: { $nin: excludeIds }
       })
     ]);
 

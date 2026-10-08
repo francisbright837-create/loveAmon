@@ -20,14 +20,13 @@ function sanitize(str) {
 // Register
 router.post("/register", async (req, res) => {
   try {
-    let { name, email, password, gender, interest } = req.body;
+    let { name, email, password } = req.body;
 
     name = sanitize(name?.trim());
     email = email?.trim().toLowerCase();
-    interest = sanitize(interest);
 
-    if (!name || !email || !password || !gender || !interest) {
-      return res.status(400).json({ message: "All fields are required" });
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "Name, email and password are required" });
     }
 
     if (!isValidEmail(email)) {
@@ -48,9 +47,7 @@ router.post("/register", async (req, res) => {
     user = new User({
       name,
       email,
-      password: hashedPassword,
-      gender,
-      interest
+      password: hashedPassword
     });
 
     await user.save();
@@ -93,8 +90,6 @@ router.post("/login", async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        gender: user.gender,
-        interest: user.interest,
         bio: user.bio || "",
         profilePicture: user.profilePicture || ""
       }
