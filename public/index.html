@@ -239,6 +239,14 @@
       font-size: 14px; border: none; border-radius: 10px;
       background: rgba(255,255,255,0.92); color: #333;
     }
+    .dim-act {
+      width: 84px; height: 84px; max-width: none; margin: 0; padding: 0;
+      border-radius: 50%; border: 3px solid rgba(255,255,255,0.85);
+      background: rgba(180,30,60,0.85); color: white; font-size: 34px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .dim-act small { font-size: 13px; line-height: 1; }
+    .dim-act:active { transform: scale(0.92); }
     .feed-search-bar input {
       flex: 1; min-width: 0;
       max-width: none;
@@ -433,6 +441,7 @@
 
       <div id="world-stage" style="position:absolute; inset:0;">
         <canvas id="world-canvas" style="display:block; touch-action:none; cursor:pointer;"></canvas>
+        <div id="world-portal-prompt" style="display:none; position:absolute; bottom:100px; left:50%; transform:translateX(-50%); background:linear-gradient(135deg,#3a0f6b,#7a1fa2); color:white; padding:10px 16px; border-radius:16px; box-shadow:0 4px 16px rgba(0,0,0,0.45); white-space:nowrap; z-index:4;"></div>
         <div id="world-talk-prompt" style="display:none; position:absolute; top:112px; left:50%; transform:translateX(-50%); background:white; padding:8px 16px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,0.2); white-space:nowrap;"></div>
       </div>
 
@@ -497,6 +506,28 @@
       <textarea id="video-caption" placeholder="Add a caption..." rows="3" maxlength="200" style="margin-top:15px;"></textarea>
       <button onclick="uploadVideo()" style="margin-top:15px;">Upload</button>
       <div id="upload-status" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- Portal Dimension (demon fighting game) -->
+    <div id="portal-screen" style="display:none; position:fixed; inset:0; z-index:9700; background:#0d0618; text-align:left; user-select:none; -webkit-user-select:none;">
+      <canvas id="dim-canvas" style="position:absolute; inset:0; display:block; touch-action:none;"></canvas>
+
+      <div style="position:absolute; top:0; left:0; right:0; height:64px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; color:white; z-index:2; pointer-events:none;">
+        <div id="dim-hearts" style="font-size:26px;"></div>
+        <div id="dim-level" style="font-weight:700; font-size:16px;"></div>
+        <button class="world-btn" style="pointer-events:auto;" onclick="exitDimension()">🏃 Run away</button>
+      </div>
+
+      <div style="position:absolute; left:0; right:0; bottom:0; height:96px; display:flex; align-items:center; justify-content:center; gap:28px; padding-bottom:env(safe-area-inset-bottom, 0px); z-index:2;">
+        <button class="dim-act" onclick="dimKnife()" aria-label="Knife">🗡️<small>Knife</small></button>
+        <button id="dim-bow" class="dim-act" onclick="dimBow()" aria-label="Bow">🏹<small id="dim-arrows">10</small></button>
+      </div>
+
+      <div id="dim-end" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.85); z-index:5; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:white; text-align:center; padding:20px; box-sizing:border-box;">
+        <h2 id="dim-end-title" style="margin:0;"></h2>
+        <p id="dim-end-text" style="max-width:340px; margin:0;"></p>
+        <button onclick="exitDimension()" style="max-width:300px;">Return to town</button>
+      </div>
     </div>
 
     <!-- Camera Screen (photo / video with AI places & characters) -->

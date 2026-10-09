@@ -238,7 +238,7 @@ function hideAllScreens() {
     'matching-screen', 'messages-screen', 'my-profile-screen',
     'upload-video-screen', 'edit-profile-screen', 'chat-screen',
     'video-feed-screen', 'video-detail-screen', 'public-profile-screen',
-    'map-screen', 'world-screen', 'camera-screen'
+    'map-screen', 'world-screen', 'camera-screen', 'portal-screen'
   ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -1578,6 +1578,16 @@ function setupWorldPointer() {
       u.userId !== currentUser.id && Math.hypot(u.dx - p.x, u.dy - p.y) < 30);
     if (hit) { openWorldChat(hit.userId, hit.name); return; }
 
+    // tapping a portal: walk close, then it asks if you want to enter
+    const portal = worldActivePortals().find(pp => Math.hypot(pp.x - p.x, pp.y - p.y) < 55);
+    if (portal) {
+      const me0 = worldUsers[currentUser.id];
+      if (worldUsedPortals.has(portal.id)) showMessage('🔒 That portal is sealed. Find another one!');
+      else if (me0 && Math.hypot(me0.x - portal.x, me0.y - portal.y) < 120) enterPortal(portal.id);
+      else showMessage('🌀 Walk closer to the portal');
+      return;
+    }
+
     // tapping a parked car hops in (walk close first)
     const car = WORLD_PARKED_CARS.find(c => Math.hypot(c.x - p.x, c.y - p.y) < 40);
     if (car && !worldVehicle) { enterWorldCar(car); return; }
@@ -2143,6 +2153,11 @@ function drawWorldMinimap(ctx) {
     ctx.fill();
   });
 
+  worldActivePortals().forEach(p => {
+    ctx.fillStyle = worldUsedPortals.has(p.id) ? '#888' : '#c05cff';
+    ctx.beginPath(); ctx.arc(mx + p.x * sx, my + p.y * sy, 4, 0, Math.PI * 2); ctx.fill();
+  });
+
   ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 2;
   ctx.strokeRect(mx, my, mw, mh);
   ctx.lineWidth = 1;
@@ -2157,6 +2172,7 @@ function drawWorld() {
   const users = Object.values(worldUsers);
 
   updateWorldMovement(now);
+  worldPortalTick();
 
   // animation state: glide towards the real position, detect walking, record trail
   users.forEach(u => {
@@ -2232,6 +2248,10 @@ function drawWorld() {
     if (!inView(p.x, p.y)) return;
     items.push({ y: p.y, draw: () => drawWorldCarEmoji(ctx, c.e, p.x, p.y, 48, p.flip, p.rot) });
   });
+  worldActivePortals().forEach(p => {
+    if (!inView(p.x, p.y)) return;
+    items.push({ y: p.y + 30, draw: () => drawWorldPortal(ctx, p, t, worldUsedPortals.has(p.id)) });
+  });
   users.forEach(u => items.push({ y: u.dy + 19, draw: () => drawWorldAvatar(ctx, u, now) }));
 
   items.sort((a, b) => a.y - b.y).forEach(it => it.draw());
@@ -2243,6 +2263,567 @@ function drawWorld() {
   });
 
   drawWorldMinimap(ctx);
+}
+
+// ==================== PORTALS & THE DEMON DIMENSION ====================
+// Portals open in the town (everyone sees the same ones, because they come from the clock).
+// Walk into one to fight demons: 5 levels, 3 lives, knife and arrows only.
+
+const PORTAL_SLOT_MS = 120000;   // a new pair of portals every 2 minutes
+const PORTAL_SPOTS = [
+  { x: 300, y: 520 },  { x: 780, y: 560 },  { x: 1560, y: 540 }, { x: 2200, y: 520 },
+  { x: 500, y: 1120 }, { x: 900, y: 1250 }, { x: 1700, y: 930 }, { x: 2200, y: 1240 }
+];
+const worldUsedPortals = new Set();   // portals that already sealed behind me
+let worldLastPortalSlot = null;
+let worldPortalPromptId = null;
+
+function worldActivePortals(now) {
+  now = now || Date.now();
+  const slot = Math.floor(now / PORTAL_SLOT_MS);
+  const n = PORTAL_SPOTS.length;
+  const a = (Math.imul(slot, 2654435761) >>> 0) % n;
+  const b = (a + 1 + ((Math.imul(slot + 7, 40503) >>> 0) % (n - 1))) % n;
+  return [a, b].map((idx, k) => ({
+    id: slot + '-' + k, x: PORTAL_SPOTS[idx].x, y: PORTAL_SPOTS[idx].y, endsAt: (slot + 1) * PORTAL_SLOT_MS
+  }));
+}
+
+function worldPortalTick() {
+  const slot = Math.floor(Date.now() / PORTAL_SLOT_MS);
+  if (worldLastPortalSlot !== null && slot !== worldLastPortalSlot) showMessage('🌀 New portals opened in the town!');
+  worldLastPortalSlot = slot;
+
+  const me = worldUsers[currentUser.id];
+  const prompt = document.getElementById('world-portal-prompt');
+  if (!me || !prompt || dimActive) return;
+
+  const near = worldActivePortals().find(p => Math.hypot(p.x - me.x, p.y - me.y) < 75 && !worldUsedPortals.has(p.id));
+  if (!near) {
+    if (worldPortalPromptId) { worldPortalPromptId = null; prompt.style.display = 'none'; }
+    return;
+  }
+  if (worldPortalPromptId === near.id) return;
+  worldPortalPromptId = near.id;
+  prompt.textContent = '';
+  const label = document.createElement('span');
+  label.textContent = '🌀 Demon portal · 5 levels · 3 lives';
+  const btn = document.createElement('button');
+  btn.textContent = 'Enter';
+  btn.style.cssText = 'width:auto; padding:6px 14px; margin:0 0 0 10px; display:inline-block;';
+  btn.onclick = () => enterPortal(near.id);
+  prompt.append(label, btn);
+  prompt.style.display = 'block';
+}
+
+function drawWorldPortal(ctx, p, t, used) {
+  const left = Math.max(0, p.endsAt - Date.now());
+  const pulse = 1 + Math.sin(t * 4) * 0.05;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+
+  const g = ctx.createRadialGradient(0, 0, 10, 0, 0, 100 * pulse);
+  g.addColorStop(0, used ? 'rgba(120,120,120,0.35)' : 'rgba(170,80,255,0.6)');
+  g.addColorStop(1, 'rgba(170,80,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, 100 * pulse, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = used ? '#2a2a2a' : '#12052a';
+  ctx.beginPath(); ctx.ellipse(0, 0, 34 * pulse, 52 * pulse, 0, 0, Math.PI * 2); ctx.fill();
+
+  for (let k = 0; k < 3; k++) {
+    ctx.strokeStyle = used ? '#888' : (k % 2 ? '#6df2ff' : '#d27bff');
+    ctx.lineWidth = 4 - k;
+    const a0 = t * (2 + k) + k * 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, (36 - k * 9) * pulse, (54 - k * 13) * pulse, 0, a0, a0 + Math.PI * 1.4);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const s = Math.ceil(left / 1000);
+  const text = used ? '🔒 Sealed' : '🌀 Portal ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.fillStyle = 'white';
+  ctx.strokeText(text, p.x, p.y - 74);
+  ctx.fillText(text, p.x, p.y - 74);
+}
+
+function enterPortal(id) {
+  if (!worldActivePortals().some(p => p.id === id) || worldUsedPortals.has(id)) {
+    showMessage('The portal closed');
+    return;
+  }
+  dimPortalId = id;
+  worldPortalPromptId = null;
+  const prompt = document.getElementById('world-portal-prompt');
+  if (prompt) prompt.style.display = 'none';
+  leaveWorld();       // our avatar disappears from the town while we fight
+  startDimension();
+}
+
+// ---------- the dimension ----------
+
+const DIM_W = 600, DIM_H = 800, DIM_MAX_ARROWS = 12;
+
+const DIM_LEVELS = [
+  { name: 'The Gate',       imp: 6,  ogre: 0, fiend: 0, skull: 0, boss: 0 },
+  { name: 'Ashen Fields',   imp: 8,  ogre: 2, fiend: 0, skull: 0, boss: 0 },
+  { name: 'Cinder Halls',   imp: 8,  ogre: 3, fiend: 3, skull: 0, boss: 0 },
+  { name: 'The Bone Pit',   imp: 8,  ogre: 3, fiend: 3, skull: 3, boss: 0 },
+  { name: 'The Demon Lord', imp: 5,  ogre: 2, fiend: 3, skull: 3, boss: 1 }
+];
+const DIM_TYPES = {
+  imp:   { e: '😈', hp: 2,  sp: 62,  r: 15, size: 34,  shoot: 0 },
+  ogre:  { e: '👹', hp: 6,  sp: 42,  r: 22, size: 46,  shoot: 0 },
+  fiend: { e: '👺', hp: 3,  sp: 70,  r: 16, size: 36,  shoot: 2.8 },
+  skull: { e: '💀', hp: 2,  sp: 105, r: 14, size: 32,  shoot: 0 },
+  boss:  { e: '👿', hp: 36, sp: 48,  r: 46, size: 104, shoot: 2.2 }
+};
+
+let dimActive = false, dimRaf = null, dimCtx = null, dimPortalId = null, dim = null;
+let dimScale = 1, dimOffX = 0, dimOffY = 0, dimDpr = 1, dimCssW = 0, dimCssH = 0, dimLast = 0;
+
+const DIM_CRACKS = (() => {
+  let seed = 5;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const out = [];
+  for (let i = 0; i < 9; i++) {
+    let x = rnd() * DIM_W, y = rnd() * DIM_H;
+    const pts = [[x, y]];
+    for (let k = 0; k < 5; k++) { x += (rnd() - 0.5) * 120; y += (rnd() - 0.5) * 120; pts.push([x, y]); }
+    out.push(pts);
+  }
+  return out;
+})();
+
+const dimRnd = (a, b) => a + Math.random() * (b - a);
+const dimClamp = p => ({ x: Math.min(DIM_W - 20, Math.max(20, p.x)), y: Math.min(DIM_H - 20, Math.max(20, p.y)) });
+
+function fitDimCanvas() {
+  const screen = document.getElementById('portal-screen');
+  const canvas = document.getElementById('dim-canvas');
+  const w = screen.clientWidth, h = screen.clientHeight;
+  if (!(w > 0 && h > 0)) return;
+  dimDpr = window.devicePixelRatio || 1;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  canvas.width = Math.floor(w * dimDpr); canvas.height = Math.floor(h * dimDpr);
+  dimCssW = w; dimCssH = h;
+  const topH = 64, botH = 96;
+  dimScale = Math.max(0.3, Math.min(w / DIM_W, (h - topH - botH) / DIM_H));
+  dimOffX = (w - DIM_W * dimScale) / 2;
+  dimOffY = topH + (h - topH - botH - DIM_H * dimScale) / 2;
+}
+window.addEventListener('resize', () => { if (dimActive) fitDimCanvas(); });
+
+function setupDimPointer() {
+  const c = document.getElementById('dim-canvas');
+  if (c._bound) return;
+  c._bound = true;
+  const pt = e => {
+    const r = c.getBoundingClientRect();
+    return { x: (e.clientX - r.left - dimOffX) / dimScale, y: (e.clientY - r.top - dimOffY) / dimScale };
+  };
+  let down = false;
+  c.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (!dim || dim.state === 'over') return;
+    const p = pt(e);
+    // tap a demon: close = knife, far = arrow
+    const m = dim.mons.find(mo => Math.hypot(mo.x - p.x, mo.y - p.y) < mo.r + 14);
+    if (m) {
+      if (Math.hypot(m.x - dim.px, m.y - dim.py) < 100 + m.r) dimKnife(m); else dimBow(m);
+      return;
+    }
+    down = true;
+    if (c.setPointerCapture) c.setPointerCapture(e.pointerId);
+    dim.target = dimClamp(p);
+  });
+  c.addEventListener('pointermove', e => { if (down && dim) dim.target = dimClamp(pt(e)); });
+  const up = () => { down = false; };
+  c.addEventListener('pointerup', up);
+  c.addEventListener('pointercancel', up);
+}
+
+function startDimension() {
+  hideAllScreens();
+  document.getElementById('portal-screen').style.display = 'block';
+  document.getElementById('dim-end').style.display = 'none';
+  dimCtx = document.getElementById('dim-canvas').getContext('2d');
+  dimActive = true;
+  fitDimCanvas();
+  setupDimPointer();
+
+  dim = {
+    level: 0, lives: 3, arrows: 10, px: DIM_W / 2, py: DIM_H * 0.78, target: null, face: { x: 0, y: -1 },
+    knifeCd: 0, bowCd: 0, arrowRegen: 0, invuln: 0, hitFlash: 0,
+    mons: [], queue: [], shots: [], fireballs: [], drops: [], fx: [], slash: null,
+    spawnT: 0, state: 'intro', stateT: 0, banner: '', t: 0
+  };
+  beginDimLevel(0);
+  dimLast = performance.now();
+  dimRaf = requestAnimationFrame(dimTick);
+}
+
+function beginDimLevel(i) {
+  const L = DIM_LEVELS[i], d = dim;
+  d.level = i;
+  d.mons = []; d.shots = []; d.fireballs = []; d.drops = [];
+  d.arrows = Math.max(d.arrows, 10);
+  d.queue = [];
+  ['imp', 'ogre', 'fiend', 'skull', 'boss'].forEach(k => { for (let n = 0; n < L[k]; n++) d.queue.push(k); });
+  d.queue.sort(() => Math.random() - 0.5);
+  const bi = d.queue.indexOf('boss');
+  if (bi > 0) { d.queue.splice(bi, 1); d.queue.unshift('boss'); }
+  d.state = 'intro'; d.stateT = 2.2;
+  d.banner = 'Level ' + (i + 1) + ' · ' + L.name;
+  d.spawnT = 0;
+  updateDimHud();
+}
+
+function updateDimHud() {
+  const d = dim;
+  if (!d) return;
+  document.getElementById('dim-hearts').textContent = '❤️'.repeat(Math.max(0, d.lives)) + '🖤'.repeat(Math.max(0, 3 - d.lives));
+  document.getElementById('dim-level').textContent = 'Level ' + (d.level + 1) + ' / 5';
+  document.getElementById('dim-arrows').textContent = d.arrows;
+  document.getElementById('dim-bow').style.opacity = d.arrows > 0 ? '1' : '0.45';
+}
+
+function dimNearest() {
+  let best = null, bd = Infinity;
+  dim.mons.forEach(m => {
+    const dd = Math.hypot(m.x - dim.px, m.y - dim.py);
+    if (dd < bd) { bd = dd; best = m; }
+  });
+  return best;
+}
+
+function dimAimAt(m) {
+  if (m) {
+    const dx = m.x - dim.px, dy = m.y - dim.py, l = Math.hypot(dx, dy) || 1;
+    dim.face = { x: dx / l, y: dy / l };
+  }
+  return dim.face;
+}
+
+function dimKnife(target) {
+  const d = dim;
+  if (!dimActive || !d || d.state === 'over' || d.knifeCd > 0) return;
+  const f = dimAimAt(target || dimNearest());
+  const RANGE = 84;
+  d.knifeCd = 0.38;
+  d.slash = { ang: Math.atan2(f.y, f.x), t: 0.18 };
+  d.mons.slice().forEach(mo => {
+    const dx = mo.x - d.px, dy = mo.y - d.py, dist = Math.hypot(dx, dy);
+    if (dist > RANGE + mo.r) return;
+    const dot = (dx * f.x + dy * f.y) / (dist || 1);
+    if (dot < 0.2 && dist > mo.r + 22) return;           // outside the swing
+    hitMonster(mo, 2, f.x, f.y, 260);
+  });
+  // a knife can slice fireballs out of the air
+  d.fireballs = d.fireballs.filter(fb => !(Math.hypot(fb.x - d.px, fb.y - d.py) < RANGE && ((fb.x - d.px) * f.x + (fb.y - d.py) * f.y) > 0));
+}
+
+function dimBow(target) {
+  const d = dim;
+  if (!dimActive || !d || d.state === 'over' || d.bowCd > 0 || d.arrows <= 0) return;
+  const f = dimAimAt(target || dimNearest());
+  d.arrows--;
+  d.bowCd = 0.5;
+  d.shots.push({ x: d.px + f.x * 16, y: d.py + f.y * 16, vx: f.x * 560, vy: f.y * 560, life: 1.1 });
+  updateDimHud();
+}
+
+function dimBurst(x, y, n, colors, speed) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = dimRnd(speed * 0.3, speed);
+    dim.fx.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: dimRnd(0.25, 0.6), col: colors[i % colors.length] });
+  }
+}
+
+function hitMonster(m, dmg, kx, ky, force) {
+  m.hp -= dmg;
+  m.flash = 0.12;
+  const f = m.type === 'boss' ? force * 0.15 : force;
+  m.kx += kx * f; m.ky += ky * f;
+  dimBurst(m.x, m.y, 4, ['#ffd23f', '#ff7a3d'], 160);
+  if (m.hp <= 0) killMonster(m);
+}
+
+function killMonster(m) {
+  dim.mons = dim.mons.filter(o => o !== m);
+  dimBurst(m.x, m.y, m.type === 'boss' ? 60 : 14, ['#ff4d4d', '#ff9f3d', '#ffe066'], m.type === 'boss' ? 380 : 220);
+  if (m.type !== 'boss' && Math.random() < 0.22) dim.drops.push({ x: m.x, y: m.y, life: 9 });
+}
+
+function spawnDimMonster(type, x, y) {
+  const d = dim, T = DIM_TYPES[type];
+  if (x === undefined) {
+    for (let tries = 0; tries < 6; tries++) {
+      const side = Math.floor(Math.random() * 4);
+      x = side === 0 ? 24 : side === 1 ? DIM_W - 24 : dimRnd(30, DIM_W - 30);
+      y = side === 2 ? 24 : side === 3 ? DIM_H - 24 : dimRnd(30, DIM_H - 30);
+      if (Math.hypot(x - d.px, y - d.py) > 230) break;
+    }
+  }
+  d.mons.push({
+    type, x, y, hp: T.hp, maxHp: T.hp, r: T.r,
+    sp: T.sp * (1 + 0.09 * d.level) * dimRnd(0.9, 1.1),
+    shootT: T.shoot ? dimRnd(1, 1 + T.shoot) : 0, summonT: 7, flash: 0, kx: 0, ky: 0
+  });
+}
+
+function dimFire(m, angleOffset) {
+  const d = dim;
+  const a = Math.atan2(d.py - m.y, d.px - m.x) + (angleOffset || 0);
+  const sp = 150 + 12 * d.level;
+  d.fireballs.push({ x: m.x, y: m.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 5 });
+}
+
+function hurtDimPlayer(sx, sy) {
+  const d = dim;
+  if (d.invuln > 0 || d.state === 'over') return;
+  d.lives--;
+  d.invuln = 1.6;
+  d.hitFlash = 0.3;
+  const dx = d.px - sx, dy = d.py - sy, l = Math.hypot(dx, dy) || 1;
+  const p = dimClamp({ x: d.px + dx / l * 55, y: d.py + dy / l * 55 });
+  d.px = p.x; d.py = p.y;
+  dimBurst(d.px, d.py, 12, ['#ff4d6d', '#ffffff'], 200);
+  updateDimHud();
+  if (d.lives <= 0) endDimension('lose');
+}
+
+function movePlayer(dt) {
+  const d = dim;
+  if (!d.target) return;
+  const dx = d.target.x - d.px, dy = d.target.y - d.py, dist = Math.hypot(dx, dy);
+  const step = 270 * dt;
+  if (dist <= step) { d.px = d.target.x; d.py = d.target.y; d.target = null; return; }
+  d.px += dx / dist * step; d.py += dy / dist * step;
+  d.face = { x: dx / dist, y: dy / dist };
+}
+
+function updateDim(dt) {
+  const d = dim;
+  d.t += dt;
+  d.fx.forEach(f => { f.x += f.vx * dt; f.y += f.vy * dt; f.life -= dt; });
+  d.fx = d.fx.filter(f => f.life > 0);
+  if (d.slash) { d.slash.t -= dt; if (d.slash.t <= 0) d.slash = null; }
+  if (d.state === 'over') return;
+
+  movePlayer(dt);
+  d.knifeCd = Math.max(0, d.knifeCd - dt);
+  d.bowCd = Math.max(0, d.bowCd - dt);
+  d.invuln = Math.max(0, d.invuln - dt);
+  d.hitFlash = Math.max(0, d.hitFlash - dt);
+
+  if (d.state === 'intro') { d.stateT -= dt; if (d.stateT <= 0) d.state = 'fight'; return; }
+  if (d.state === 'cleared') {
+    d.stateT -= dt;
+    if (d.stateT <= 0) {
+      if (d.level + 1 >= DIM_LEVELS.length) endDimension('win'); else beginDimLevel(d.level + 1);
+    }
+    return;
+  }
+
+  // arrows slowly come back
+  if (d.arrows < DIM_MAX_ARROWS) {
+    d.arrowRegen += dt;
+    if (d.arrowRegen >= 1.0) { d.arrowRegen = 0; d.arrows++; updateDimHud(); }
+  }
+
+  // demons arrive one by one
+  d.spawnT -= dt;
+  if (d.queue.length && d.spawnT <= 0 && d.mons.length < 14) {
+    spawnDimMonster(d.queue.shift());
+    d.spawnT = Math.max(0.35, 1.1 - 0.17 * d.level);
+  }
+
+  d.mons.slice().forEach(m => {
+    const dx = d.px - m.x, dy = d.py - m.y, dist = Math.hypot(dx, dy) || 1;
+    m.x += (dx / dist * m.sp + m.kx) * dt;
+    m.y += (dy / dist * m.sp + m.ky) * dt;
+    const decay = Math.min(1, 8 * dt);
+    m.kx -= m.kx * decay; m.ky -= m.ky * decay;
+    m.flash = Math.max(0, m.flash - dt);
+    m.x = Math.min(DIM_W - 10, Math.max(10, m.x));
+    m.y = Math.min(DIM_H - 10, Math.max(10, m.y));
+
+    d.mons.forEach(o => {                       // don't stack on top of each other
+      if (o === m) return;
+      const ox = m.x - o.x, oy = m.y - o.y, od = Math.hypot(ox, oy) || 1, min = (m.r + o.r) * 0.8;
+      if (od < min) { m.x += ox / od * (min - od) * 0.5; m.y += oy / od * (min - od) * 0.5; }
+    });
+
+    const T = DIM_TYPES[m.type];
+    if (T.shoot) {
+      m.shootT -= dt;
+      if (m.shootT <= 0) {
+        if (m.type === 'boss') { dimFire(m, -0.3); dimFire(m, 0); dimFire(m, 0.3); } else dimFire(m, 0);
+        m.shootT = Math.max(1.1, T.shoot - 0.12 * d.level) + Math.random() * 0.5;
+      }
+    }
+    if (m.type === 'boss') {
+      m.summonT -= dt;
+      if (m.summonT <= 0 && d.mons.length < 12) { spawnDimMonster('imp', m.x, m.y); spawnDimMonster('imp', m.x + 20, m.y); m.summonT = 8; }
+    }
+    if (dist < m.r + 14) hurtDimPlayer(m.x, m.y);
+  });
+
+  d.shots.forEach(s => {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+    const hit = d.mons.find(m => Math.hypot(m.x - s.x, m.y - s.y) < m.r + 4);
+    if (hit) { s.life = 0; hitMonster(hit, 1, s.vx / 560, s.vy / 560, 60); }
+    if (s.x < 0 || s.x > DIM_W || s.y < 0 || s.y > DIM_H) s.life = 0;
+  });
+  d.shots = d.shots.filter(s => s.life > 0);
+
+  d.fireballs.forEach(fb => {
+    fb.x += fb.vx * dt; fb.y += fb.vy * dt; fb.life -= dt;
+    if (Math.hypot(fb.x - d.px, fb.y - d.py) < 20) { fb.life = 0; hurtDimPlayer(fb.x - fb.vx, fb.y - fb.vy); }
+    if (fb.x < -20 || fb.x > DIM_W + 20 || fb.y < -20 || fb.y > DIM_H + 20) fb.life = 0;
+  });
+  d.fireballs = d.fireballs.filter(fb => fb.life > 0);
+
+  d.drops.forEach(p => {                        // dropped arrows
+    p.life -= dt;
+    if (Math.hypot(p.x - d.px, p.y - d.py) < 26) { p.life = 0; d.arrows = Math.min(DIM_MAX_ARROWS, d.arrows + 3); updateDimHud(); }
+  });
+  d.drops = d.drops.filter(p => p.life > 0);
+
+  if (d.state === 'fight' && !d.queue.length && !d.mons.length) {
+    d.state = 'cleared';
+    d.stateT = 2.4;
+    d.banner = 'Level ' + (d.level + 1) + ' cleared!';
+    if ((d.level === 1 || d.level === 3) && d.lives < 3) { d.lives++; d.banner += '  +1 ❤️'; updateDimHud(); }
+  }
+}
+
+function endDimension(result) {
+  dim.state = 'over';
+  const win = result === 'win';
+  document.getElementById('dim-end-title').textContent = win ? '🏆 Dimension cleared!' : '💀 You were defeated';
+  document.getElementById('dim-end-text').textContent = win
+    ? 'You beat all 5 levels and the Demon Lord is gone!'
+    : 'The portal sealed behind you. Go back to the town and find another portal to try again.';
+  document.getElementById('dim-end').style.display = 'flex';
+}
+
+// leaves the dimension (after winning, losing, or running away) and goes back to the town
+function exitDimension() {
+  dimActive = false;
+  if (dimRaf) cancelAnimationFrame(dimRaf);
+  dimRaf = null;
+  if (dimPortalId) worldUsedPortals.add(dimPortalId);   // that portal is sealed now
+  document.getElementById('dim-end').style.display = 'none';
+  document.getElementById('portal-screen').style.display = 'none';
+  openWorld();
+}
+
+function dimTick(now) {
+  if (!dimActive) return;
+  const dt = Math.min(0.05, (now - dimLast) / 1000);
+  dimLast = now;
+  updateDim(dt);
+  drawDim();
+  dimRaf = requestAnimationFrame(dimTick);
+}
+
+function drawDim() {
+  const ctx = dimCtx, d = dim;
+  if (!ctx || !d || !dimCssW) return;
+  ctx.setTransform(dimDpr, 0, 0, dimDpr, 0, 0);
+  ctx.fillStyle = '#0d0618';
+  ctx.fillRect(0, 0, dimCssW, dimCssH);
+  ctx.setTransform(dimScale * dimDpr, 0, 0, dimScale * dimDpr, dimOffX * dimDpr, dimOffY * dimDpr);
+  const t = d.t;
+
+  // floor
+  const g = ctx.createRadialGradient(DIM_W / 2, DIM_H / 2, 60, DIM_W / 2, DIM_H / 2, 540);
+  g.addColorStop(0, '#4a1238'); g.addColorStop(1, '#14061c');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, DIM_W, DIM_H);
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255,120,40,' + (0.45 + Math.sin(t * 2) * 0.15).toFixed(2) + ')';
+  DIM_CRACKS.forEach(pts => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); });
+  ctx.fillStyle = 'rgba(255,170,80,0.55)';
+  for (let i = 0; i < 26; i++) {                // floating embers
+    const x = (i * 83 + Math.sin(t + i) * 20) % DIM_W, y = DIM_H - ((t * 30 + i * 61) % DIM_H);
+    ctx.fillRect(x, y, 3, 3);
+  }
+  ctx.lineWidth = 6; ctx.strokeStyle = '#ff5a1f';
+  ctx.strokeRect(3, 3, DIM_W - 6, DIM_H - 6);
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+  d.drops.forEach(p => { ctx.font = '26px ' + WORLD_EMOJI_FONT; ctx.fillText('🏹', p.x, p.y + Math.sin(t * 6) * 3); });
+
+  // demons, back to front
+  d.mons.slice().sort((a, b) => a.y - b.y).forEach(m => {
+    const T = DIM_TYPES[m.type];
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(m.x, m.y + m.r * 0.8, m.r, m.r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+    if (m.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.font = T.size + 'px ' + WORLD_EMOJI_FONT;
+    ctx.fillText(T.e, m.x, m.y);
+    if (m.hp < m.maxHp && m.type !== 'boss') {
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(m.x - m.r, m.y - m.r - 10, m.r * 2, 5);
+      ctx.fillStyle = '#ff4d4d'; ctx.fillRect(m.x - m.r, m.y - m.r - 10, m.r * 2 * (m.hp / m.maxHp), 5);
+    }
+    if (m.type === 'boss') {
+      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(60, 14, DIM_W - 120, 12);
+      ctx.fillStyle = '#ff2d55'; ctx.fillRect(60, 14, (DIM_W - 120) * Math.max(0, m.hp / m.maxHp), 12);
+    }
+  });
+
+  d.fireballs.forEach(fb => { ctx.font = '24px ' + WORLD_EMOJI_FONT; ctx.fillText('🔥', fb.x, fb.y); });
+
+  // player
+  const blink = d.invuln > 0 && Math.floor(t * 14) % 2 === 0;
+  if (!blink) {
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(d.px, d.py + 16, 15, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(d.px, d.py, 17, 0, Math.PI * 2);
+    ctx.fillStyle = d.hitFlash > 0 ? '#ff4d4d' : '#ff4d8d'; ctx.fill();
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 3; ctx.stroke();
+    const img = currentUser.profilePicture ? getWorldImage(currentUser.profilePicture) : null;
+    if (img) {
+      ctx.save(); ctx.beginPath(); ctx.arc(d.px, d.py, 14, 0, Math.PI * 2); ctx.clip();
+      ctx.drawImage(img, d.px - 14, d.py - 14, 28, 28); ctx.restore();
+    }
+    ctx.font = '18px ' + WORLD_EMOJI_FONT;
+    ctx.fillText('🗡️', d.px + d.face.x * 26, d.py + d.face.y * 26);
+  }
+
+  d.shots.forEach(s => {
+    const a = Math.atan2(s.vy, s.vx);
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(a);
+    ctx.strokeStyle = '#f4e4b0'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(8, 0); ctx.stroke();
+    ctx.fillStyle = '#ddd'; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(6, -5); ctx.lineTo(6, 5); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  });
+
+  if (d.slash) {
+    const k = d.slash.t / 0.18;
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.85 * k).toFixed(2) + ')';
+    ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.arc(d.px, d.py, 56, d.slash.ang - 1.0, d.slash.ang + 1.0); ctx.stroke();
+  }
+
+  d.fx.forEach(f => { ctx.globalAlpha = Math.min(1, f.life * 3); ctx.fillStyle = f.col; ctx.fillRect(f.x - 2, f.y - 2, 4, 4); });
+  ctx.globalAlpha = 1;
+
+  if (d.state === 'intro' || d.state === 'cleared') {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, d.stateT * 1.5);
+    ctx.font = 'bold 34px Arial'; ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.fillStyle = '#ffe066';
+    ctx.strokeText(d.banner, DIM_W / 2, DIM_H * 0.32);
+    ctx.fillText(d.banner, DIM_W / 2, DIM_H * 0.32);
+    ctx.restore();
+  }
 }
 
 // ==================== CAMERA (photos, videos, AI environments & characters) ====================
