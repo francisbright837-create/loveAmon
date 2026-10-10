@@ -246,6 +246,16 @@
       display: flex; flex-direction: column; align-items: center; justify-content: center;
     }
     .dim-act small { font-size: 13px; line-height: 1; }
+    .hero-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: min(100%, 420px); }
+    .hero-card {
+      width: auto; max-width: none; margin: 0; padding: 10px 8px;
+      border-radius: 14px; border: 2px solid var(--c); background: rgba(255,255,255,0.06); color: white;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+    }
+    .hero-card img { height: 120px; width: auto; }
+    .hero-card b { color: var(--c); font-size: 18px; }
+    .hero-card span { font-size: 12px; opacity: 0.85; line-height: 1.25; }
+    .hero-card:active { transform: scale(0.97); }
     .dim-act:active { transform: scale(0.92); }
     .feed-search-bar input {
       flex: 1; min-width: 0;
@@ -521,6 +531,17 @@
       <div style="position:absolute; left:0; right:0; bottom:0; height:96px; display:flex; align-items:center; justify-content:center; gap:28px; padding-bottom:env(safe-area-inset-bottom, 0px); z-index:2;">
         <button class="dim-act" onclick="dimKnife()" aria-label="Knife">🗡️<small>Knife</small></button>
         <button id="dim-bow" class="dim-act" onclick="dimBow()" aria-label="Bow">🏹<small id="dim-arrows">10</small></button>
+      </div>
+
+      <div id="dim-pick" style="display:none; position:absolute; inset:0; background:rgba(5,6,15,0.95); z-index:6; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:16px; box-sizing:border-box; color:white; text-align:center; overflow-y:auto;">
+        <h2 style="margin:0; color:#ff7a1f;">Choose your hero</h2>
+        <div class="hero-grid">
+          <button class="hero-card" style="--c:#ff7a1f;" onclick="pickDimHero('kai')"><img src="/sprites/kai.png" alt=""><b>Kai</b><span>Balanced hero. Great for all situations.</span></button>
+          <button class="hero-card" style="--c:#ff5fa8;" onclick="pickDimHero('luna')"><img src="/sprites/luna.png" alt=""><b>Luna</b><span>Magic specialist. Arrows hit twice as hard.</span></button>
+          <button class="hero-card" style="--c:#4da3ff;" onclick="pickDimHero('rei')"><img src="/sprites/rei.png" alt=""><b>Rei</b><span>Defender. Stays protected longer after a hit.</span></button>
+          <button class="hero-card" style="--c:#7bff3d;" onclick="pickDimHero('mika')"><img src="/sprites/mika.png" alt=""><b>Mika</b><span>Agile assassin. Fast, with critical hits.</span></button>
+        </div>
+        <small style="opacity:0.75;">Everyone fights with a knife and arrows. 3 lives.</small>
       </div>
 
       <div id="dim-end" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.85); z-index:5; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:white; text-align:center; padding:20px; box-sizing:border-box;">

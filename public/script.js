@@ -2364,25 +2364,71 @@ function enterPortal(id) {
 
 // ---------- the dimension ----------
 
-const DIM_W = 600, DIM_H = 800, DIM_MAX_ARROWS = 12;
+const DIM_W = 600, DIM_H = 800;
+
+// the four heroes from the character sheet
+const DIM_HEROES = {
+  kai:  { name: 'Kai',  tag: 'Balanced hero',    color: '#ff7a1f', speed: 270, knifeDmg: 2, arrowDmg: 1, knifeCd: 0.38, bowCd: 0.50, invuln: 1.8, maxArrows: 12, regen: 1.0, crit: 0,    range: 84 },
+  luna: { name: 'Luna', tag: 'Magic specialist', color: '#ff5fa8', speed: 255, knifeDmg: 1, arrowDmg: 2, knifeCd: 0.42, bowCd: 0.45, invuln: 1.8, maxArrows: 14, regen: 0.8, crit: 0,    range: 84 },
+  rei:  { name: 'Rei',  tag: 'Defender',         color: '#4da3ff', speed: 245, knifeDmg: 2, arrowDmg: 1, knifeCd: 0.40, bowCd: 0.55, invuln: 2.8, maxArrows: 12, regen: 1.0, crit: 0,    range: 96 },
+  mika: { name: 'Mika', tag: 'Agile assassin',   color: '#7bff3d', speed: 325, knifeDmg: 2, arrowDmg: 1, knifeCd: 0.30, bowCd: 0.50, invuln: 1.6, maxArrows: 12, regen: 1.0, crit: 0.25, range: 84 }
+};
 
 const DIM_LEVELS = [
   { name: 'The Gate',       imp: 6,  ogre: 0, fiend: 0, skull: 0, boss: 0 },
   { name: 'Ashen Fields',   imp: 8,  ogre: 2, fiend: 0, skull: 0, boss: 0 },
   { name: 'Cinder Halls',   imp: 8,  ogre: 3, fiend: 3, skull: 0, boss: 0 },
-  { name: 'The Bone Pit',   imp: 8,  ogre: 3, fiend: 3, skull: 3, boss: 0 },
-  { name: 'The Demon Lord', imp: 5,  ogre: 2, fiend: 3, skull: 3, boss: 1 }
+  { name: 'The Bone Pit',   imp: 8,  ogre: 3, fiend: 2, skull: 3, boss: 0 },
+  { name: 'The Void Guardian', imp: 5,  ogre: 2, fiend: 3, skull: 3, boss: 1 }
 ];
+
+// Ori gives a tip at the start of every level
+const DIM_TIPS = [
+  ['Tap a demon: close = knife,', 'far away = arrow!'],
+  ['Demons drop arrows.', 'Walk over them to pick up!'],
+  ['Dark Wisps shoot energy.', 'Slice it with your knife!'],
+  ['Shadow Bats are fast.', 'Keep moving!'],
+  ['The Void Guardian!', 'Stay brave. You can do it!']
+];
+
+// enemies from the sheet: Voidling, Glitch Hound, Dark Wisp, Shadow Bat, Void Guardian
 const DIM_TYPES = {
-  imp:   { e: '😈', hp: 2,  sp: 62,  r: 15, size: 34,  shoot: 0 },
-  ogre:  { e: '👹', hp: 6,  sp: 42,  r: 22, size: 46,  shoot: 0 },
-  fiend: { e: '👺', hp: 3,  sp: 70,  r: 16, size: 36,  shoot: 2.8 },
-  skull: { e: '💀', hp: 2,  sp: 105, r: 14, size: 32,  shoot: 0 },
-  boss:  { e: '👿', hp: 36, sp: 48,  r: 46, size: 104, shoot: 2.2 }
+  imp:   { sprite: 'voidling', h: 42,  hp: 2,  sp: 62,  r: 15, shoot: 0,   glow: '#9b4dff' },
+  ogre:  { sprite: 'hound',    h: 46,  hp: 5,  sp: 40,  r: 22, shoot: 0,   glow: '#c04dff', charge: true, faceLeft: true },
+  fiend: { sprite: 'wisp',     h: 52,  hp: 3,  sp: 70,  r: 16, shoot: 2.8, glow: '#b366ff' },
+  skull: { sprite: 'bat',      h: 34,  hp: 2,  sp: 105, r: 15, shoot: 0,   glow: '#8a5cff', fly: true },
+  boss:  { sprite: 'guardian', h: 140, hp: 36, sp: 48,  r: 46, shoot: 2.2, glow: '#a020f0' }
 };
 
 let dimActive = false, dimRaf = null, dimCtx = null, dimPortalId = null, dim = null;
 let dimScale = 1, dimOffX = 0, dimOffY = 0, dimDpr = 1, dimCssW = 0, dimCssH = 0, dimLast = 0;
+
+// ---------- sprites ----------
+const dimSprites = {};
+function loadDimSprites() {
+  ['kai', 'luna', 'rei', 'mika', 'ori', 'voidling', 'wisp', 'bat', 'hound', 'guardian'].forEach(k => {
+    if (dimSprites[k]) return;
+    const s = { img: new Image(), ok: false };
+    s.img.onload = () => { s.ok = true; };
+    s.img.src = '/sprites/' + k + '.png';
+    dimSprites[k] = s;
+  });
+}
+function dimSprite(k) { const s = dimSprites[k]; return s && s.ok ? s.img : null; }
+
+// soft coloured glow, cached so it's cheap to draw many times
+const dimGlowCache = {};
+function dimGlow(color) {
+  if (dimGlowCache[color]) return dimGlowCache[color];
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+  gr.addColorStop(0, color); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.globalAlpha = 0.85; g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  dimGlowCache[color] = c;
+  return c;
+}
 
 const DIM_CRACKS = (() => {
   let seed = 5;
@@ -2427,12 +2473,12 @@ function setupDimPointer() {
   let down = false;
   c.addEventListener('pointerdown', e => {
     e.preventDefault();
-    if (!dim || dim.state === 'over') return;
+    if (!dim || dim.state === 'over' || dim.state === 'pick') return;
     const p = pt(e);
     // tap a demon: close = knife, far = arrow
     const m = dim.mons.find(mo => Math.hypot(mo.x - p.x, mo.y - p.y) < mo.r + 14);
     if (m) {
-      if (Math.hypot(m.x - dim.px, m.y - dim.py) < 100 + m.r) dimKnife(m); else dimBow(m);
+      if (Math.hypot(m.x - dim.px, m.y - dim.py) < dim.hero.range + 16 + m.r) dimKnife(m); else dimBow(m);
       return;
     }
     down = true;
@@ -2451,18 +2497,33 @@ function startDimension() {
   document.getElementById('dim-end').style.display = 'none';
   dimCtx = document.getElementById('dim-canvas').getContext('2d');
   dimActive = true;
+  loadDimSprites();
   fitDimCanvas();
   setupDimPointer();
 
+  const last = (() => { try { return localStorage.getItem('dimHero'); } catch (e) { return null; } })();
   dim = {
-    level: 0, lives: 3, arrows: 10, px: DIM_W / 2, py: DIM_H * 0.78, target: null, face: { x: 0, y: -1 },
+    hero: DIM_HEROES[last] || DIM_HEROES.kai, heroId: DIM_HEROES[last] ? last : 'kai',
+    level: 0, lives: 3, arrows: 10, px: DIM_W / 2, py: DIM_H * 0.78, target: null, face: { x: 0, y: -1 }, flip: false,
+    oriX: DIM_W / 2 - 40, oriY: DIM_H * 0.78 - 50,
     knifeCd: 0, bowCd: 0, arrowRegen: 0, invuln: 0, hitFlash: 0,
-    mons: [], queue: [], shots: [], fireballs: [], drops: [], fx: [], slash: null,
-    spawnT: 0, state: 'intro', stateT: 0, banner: '', t: 0
+    mons: [], queue: [], shots: [], fireballs: [], drops: [], fx: [], pops: [], slash: null,
+    spawnT: 0, state: 'pick', stateT: 0, banner: '', t: 0
   };
-  beginDimLevel(0);
+  updateDimHud();
+  document.getElementById('dim-pick').style.display = 'flex';   // choose a hero first
   dimLast = performance.now();
   dimRaf = requestAnimationFrame(dimTick);
+}
+
+function pickDimHero(id) {
+  if (!dim || dim.state !== 'pick' || !DIM_HEROES[id]) return;
+  dim.heroId = id;
+  dim.hero = DIM_HEROES[id];
+  dim.arrows = 10;
+  try { localStorage.setItem('dimHero', id); } catch (e) {}
+  document.getElementById('dim-pick').style.display = 'none';
+  beginDimLevel(0);
 }
 
 function beginDimLevel(i) {
@@ -2475,7 +2536,7 @@ function beginDimLevel(i) {
   d.queue.sort(() => Math.random() - 0.5);
   const bi = d.queue.indexOf('boss');
   if (bi > 0) { d.queue.splice(bi, 1); d.queue.unshift('boss'); }
-  d.state = 'intro'; d.stateT = 2.2;
+  d.state = 'intro'; d.stateT = 2.6;
   d.banner = 'Level ' + (i + 1) + ' · ' + L.name;
   d.spawnT = 0;
   updateDimHud();
@@ -2503,34 +2564,43 @@ function dimAimAt(m) {
   if (m) {
     const dx = m.x - dim.px, dy = m.y - dim.py, l = Math.hypot(dx, dy) || 1;
     dim.face = { x: dx / l, y: dy / l };
+    if (Math.abs(dx) > 4) dim.flip = dx > 0;
   }
   return dim.face;
 }
 
+function dimPop(x, y, text, color) { dim.pops.push({ x, y, text, color: color || '#ffe066', life: 0.8 }); }
+
+// damage with the hero's critical-hit chance (Mika)
+function dimDamage(base, x, y) {
+  if (dim.hero.crit && Math.random() < dim.hero.crit) { dimPop(x, y - 24, 'CRIT!', '#7bff3d'); return base * 2; }
+  return base;
+}
+
 function dimKnife(target) {
   const d = dim;
-  if (!dimActive || !d || d.state === 'over' || d.knifeCd > 0) return;
+  if (!dimActive || !d || d.state === 'over' || d.state === 'pick' || d.knifeCd > 0) return;
   const f = dimAimAt(target || dimNearest());
-  const RANGE = 84;
-  d.knifeCd = 0.38;
+  const RANGE = d.hero.range;
+  d.knifeCd = d.hero.knifeCd;
   d.slash = { ang: Math.atan2(f.y, f.x), t: 0.18 };
   d.mons.slice().forEach(mo => {
     const dx = mo.x - d.px, dy = mo.y - d.py, dist = Math.hypot(dx, dy);
     if (dist > RANGE + mo.r) return;
     const dot = (dx * f.x + dy * f.y) / (dist || 1);
     if (dot < 0.2 && dist > mo.r + 22) return;           // outside the swing
-    hitMonster(mo, 2, f.x, f.y, 260);
+    hitMonster(mo, dimDamage(d.hero.knifeDmg, mo.x, mo.y), f.x, f.y, 260);
   });
-  // a knife can slice fireballs out of the air
+  // a knife can slice energy blasts out of the air
   d.fireballs = d.fireballs.filter(fb => !(Math.hypot(fb.x - d.px, fb.y - d.py) < RANGE && ((fb.x - d.px) * f.x + (fb.y - d.py) * f.y) > 0));
 }
 
 function dimBow(target) {
   const d = dim;
-  if (!dimActive || !d || d.state === 'over' || d.bowCd > 0 || d.arrows <= 0) return;
+  if (!dimActive || !d || d.state === 'over' || d.state === 'pick' || d.bowCd > 0 || d.arrows <= 0) return;
   const f = dimAimAt(target || dimNearest());
   d.arrows--;
-  d.bowCd = 0.5;
+  d.bowCd = d.hero.bowCd;
   d.shots.push({ x: d.px + f.x * 16, y: d.py + f.y * 16, vx: f.x * 560, vy: f.y * 560, life: 1.1 });
   updateDimHud();
 }
@@ -2547,13 +2617,13 @@ function hitMonster(m, dmg, kx, ky, force) {
   m.flash = 0.12;
   const f = m.type === 'boss' ? force * 0.15 : force;
   m.kx += kx * f; m.ky += ky * f;
-  dimBurst(m.x, m.y, 4, ['#ffd23f', '#ff7a3d'], 160);
+  dimBurst(m.x, m.y, 4, ['#ffd23f', '#c04dff'], 160);
   if (m.hp <= 0) killMonster(m);
 }
 
 function killMonster(m) {
   dim.mons = dim.mons.filter(o => o !== m);
-  dimBurst(m.x, m.y, m.type === 'boss' ? 60 : 14, ['#ff4d4d', '#ff9f3d', '#ffe066'], m.type === 'boss' ? 380 : 220);
+  dimBurst(m.x, m.y, m.type === 'boss' ? 60 : 14, ['#c04dff', '#ff4dcb', '#ffe066'], m.type === 'boss' ? 380 : 220);
   if (m.type !== 'boss' && Math.random() < 0.22) dim.drops.push({ x: m.x, y: m.y, life: 9 });
 }
 
@@ -2570,7 +2640,8 @@ function spawnDimMonster(type, x, y) {
   d.mons.push({
     type, x, y, hp: T.hp, maxHp: T.hp, r: T.r,
     sp: T.sp * (1 + 0.09 * d.level) * dimRnd(0.9, 1.1),
-    shootT: T.shoot ? dimRnd(1, 1 + T.shoot) : 0, summonT: 7, flash: 0, kx: 0, ky: 0
+    shootT: T.shoot ? dimRnd(1, 1 + T.shoot) : 0, summonT: 7, flash: 0, kx: 0, ky: 0,
+    chargeT: dimRnd(3, 5), tele: 0, dash: 0, dirx: 0, diry: 0, faceR: false, born: d.t
   });
 }
 
@@ -2583,12 +2654,13 @@ function dimFire(m, angleOffset) {
 
 function hurtDimPlayer(sx, sy) {
   const d = dim;
-  if (d.invuln > 0 || d.state === 'over') return;
+  if (d.invuln > 0 || d.state === 'over' || d.state === 'pick') return;
   d.lives--;
-  d.invuln = 1.6;
+  d.invuln = d.hero.invuln;
   d.hitFlash = 0.3;
   const dx = d.px - sx, dy = d.py - sy, l = Math.hypot(dx, dy) || 1;
-  const p = dimClamp({ x: d.px + dx / l * 55, y: d.py + dy / l * 55 });
+  const push = d.heroId === 'rei' ? 30 : 55;           // Rei is harder to knock back
+  const p = dimClamp({ x: d.px + dx / l * push, y: d.py + dy / l * push });
   d.px = p.x; d.py = p.y;
   dimBurst(d.px, d.py, 12, ['#ff4d6d', '#ffffff'], 200);
   updateDimHud();
@@ -2599,10 +2671,11 @@ function movePlayer(dt) {
   const d = dim;
   if (!d.target) return;
   const dx = d.target.x - d.px, dy = d.target.y - d.py, dist = Math.hypot(dx, dy);
-  const step = 270 * dt;
+  const step = d.hero.speed * dt;
   if (dist <= step) { d.px = d.target.x; d.py = d.target.y; d.target = null; return; }
   d.px += dx / dist * step; d.py += dy / dist * step;
   d.face = { x: dx / dist, y: dy / dist };
+  if (Math.abs(dx) > 2) d.flip = dx > 0;
 }
 
 function updateDim(dt) {
@@ -2610,10 +2683,17 @@ function updateDim(dt) {
   d.t += dt;
   d.fx.forEach(f => { f.x += f.vx * dt; f.y += f.vy * dt; f.life -= dt; });
   d.fx = d.fx.filter(f => f.life > 0);
+  d.pops.forEach(p => { p.y -= 30 * dt; p.life -= dt; });
+  d.pops = d.pops.filter(p => p.life > 0);
   if (d.slash) { d.slash.t -= dt; if (d.slash.t <= 0) d.slash = null; }
-  if (d.state === 'over') return;
+  if (d.state === 'over' || d.state === 'pick') return;
 
   movePlayer(dt);
+  // Ori floats beside you
+  const side = d.flip ? -1 : 1;
+  d.oriX += (d.px - 38 * side - d.oriX) * Math.min(1, 5 * dt);
+  d.oriY += (d.py - 58 + Math.sin(d.t * 3) * 5 - d.oriY) * Math.min(1, 5 * dt);
+
   d.knifeCd = Math.max(0, d.knifeCd - dt);
   d.bowCd = Math.max(0, d.bowCd - dt);
   d.invuln = Math.max(0, d.invuln - dt);
@@ -2629,9 +2709,9 @@ function updateDim(dt) {
   }
 
   // arrows slowly come back
-  if (d.arrows < DIM_MAX_ARROWS) {
+  if (d.arrows < d.hero.maxArrows) {
     d.arrowRegen += dt;
-    if (d.arrowRegen >= 1.0) { d.arrowRegen = 0; d.arrows++; updateDimHud(); }
+    if (d.arrowRegen >= d.hero.regen) { d.arrowRegen = 0; d.arrows++; updateDimHud(); }
   }
 
   // demons arrive one by one
@@ -2642,14 +2722,31 @@ function updateDim(dt) {
   }
 
   d.mons.slice().forEach(m => {
+    const T = DIM_TYPES[m.type];
     const dx = d.px - m.x, dy = d.py - m.y, dist = Math.hypot(dx, dy) || 1;
-    m.x += (dx / dist * m.sp + m.kx) * dt;
-    m.y += (dy / dist * m.sp + m.ky) * dt;
+    let vx = dx / dist * m.sp, vy = dy / dist * m.sp;
+
+    if (T.charge) {                                // Glitch Hound: warns, then charges
+      if (m.tele > 0) {
+        m.tele -= dt; vx *= 0.15; vy *= 0.15;
+        if (m.tele <= 0) { m.dash = 0.4; m.dirx = dx / dist; m.diry = dy / dist; }
+      } else if (m.dash > 0) {
+        m.dash -= dt; vx = m.dirx * 190; vy = m.diry * 190;
+        if (m.dash <= 0) m.chargeT = 4.5 + Math.random() * 1.5;
+      } else {
+        m.chargeT -= dt;
+        if (m.chargeT <= 0) m.tele = 0.6;
+      }
+    }
+
+    m.x += (vx + m.kx) * dt;
+    m.y += (vy + m.ky) * dt;
     const decay = Math.min(1, 8 * dt);
     m.kx -= m.kx * decay; m.ky -= m.ky * decay;
     m.flash = Math.max(0, m.flash - dt);
     m.x = Math.min(DIM_W - 10, Math.max(10, m.x));
     m.y = Math.min(DIM_H - 10, Math.max(10, m.y));
+    if (Math.abs(dx) > 6) m.faceR = dx > 0;
 
     d.mons.forEach(o => {                       // don't stack on top of each other
       if (o === m) return;
@@ -2657,7 +2754,6 @@ function updateDim(dt) {
       if (od < min) { m.x += ox / od * (min - od) * 0.5; m.y += oy / od * (min - od) * 0.5; }
     });
 
-    const T = DIM_TYPES[m.type];
     if (T.shoot) {
       m.shootT -= dt;
       if (m.shootT <= 0) {
@@ -2669,27 +2765,27 @@ function updateDim(dt) {
       m.summonT -= dt;
       if (m.summonT <= 0 && d.mons.length < 12) { spawnDimMonster('imp', m.x, m.y); spawnDimMonster('imp', m.x + 20, m.y); m.summonT = 8; }
     }
-    if (dist < m.r + 14) hurtDimPlayer(m.x, m.y);
+    if (dist < m.r + 10) hurtDimPlayer(m.x, m.y);
   });
 
   d.shots.forEach(s => {
     s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
     const hit = d.mons.find(m => Math.hypot(m.x - s.x, m.y - s.y) < m.r + 4);
-    if (hit) { s.life = 0; hitMonster(hit, 1, s.vx / 560, s.vy / 560, 60); }
+    if (hit) { s.life = 0; hitMonster(hit, dimDamage(d.hero.arrowDmg, hit.x, hit.y), s.vx / 560, s.vy / 560, 60); }
     if (s.x < 0 || s.x > DIM_W || s.y < 0 || s.y > DIM_H) s.life = 0;
   });
   d.shots = d.shots.filter(s => s.life > 0);
 
   d.fireballs.forEach(fb => {
     fb.x += fb.vx * dt; fb.y += fb.vy * dt; fb.life -= dt;
-    if (Math.hypot(fb.x - d.px, fb.y - d.py) < 20) { fb.life = 0; hurtDimPlayer(fb.x - fb.vx, fb.y - fb.vy); }
+    if (Math.hypot(fb.x - d.px, fb.y - d.py) < 16) { fb.life = 0; hurtDimPlayer(fb.x - fb.vx, fb.y - fb.vy); }
     if (fb.x < -20 || fb.x > DIM_W + 20 || fb.y < -20 || fb.y > DIM_H + 20) fb.life = 0;
   });
   d.fireballs = d.fireballs.filter(fb => fb.life > 0);
 
   d.drops.forEach(p => {                        // dropped arrows
     p.life -= dt;
-    if (Math.hypot(p.x - d.px, p.y - d.py) < 26) { p.life = 0; d.arrows = Math.min(DIM_MAX_ARROWS, d.arrows + 3); updateDimHud(); }
+    if (Math.hypot(p.x - d.px, p.y - d.py) < 26) { p.life = 0; d.arrows = Math.min(d.hero.maxArrows, d.arrows + 3); updateDimHud(); }
   });
   d.drops = d.drops.filter(p => p.life > 0);
 
@@ -2697,7 +2793,7 @@ function updateDim(dt) {
     d.state = 'cleared';
     d.stateT = 2.4;
     d.banner = 'Level ' + (d.level + 1) + ' cleared!';
-    if ((d.level === 1 || d.level === 3) && d.lives < 3) { d.lives++; d.banner += '  +1 ❤️'; updateDimHud(); }
+    if (d.level >= 1 && d.level <= 3 && d.lives < 3) { d.lives++; d.banner += '  +1 ❤️'; updateDimHud(); }
   }
 }
 
@@ -2706,7 +2802,7 @@ function endDimension(result) {
   const win = result === 'win';
   document.getElementById('dim-end-title').textContent = win ? '🏆 Dimension cleared!' : '💀 You were defeated';
   document.getElementById('dim-end-text').textContent = win
-    ? 'You beat all 5 levels and the Demon Lord is gone!'
+    ? 'You beat all 5 levels and the Void Guardian is gone!'
     : 'The portal sealed behind you. Go back to the town and find another portal to try again.';
   document.getElementById('dim-end').style.display = 'flex';
 }
@@ -2718,6 +2814,7 @@ function exitDimension() {
   dimRaf = null;
   if (dimPortalId) worldUsedPortals.add(dimPortalId);   // that portal is sealed now
   document.getElementById('dim-end').style.display = 'none';
+  document.getElementById('dim-pick').style.display = 'none';
   document.getElementById('portal-screen').style.display = 'none';
   openWorld();
 }
@@ -2731,71 +2828,71 @@ function dimTick(now) {
   dimRaf = requestAnimationFrame(dimTick);
 }
 
+// draws a sprite standing on the ground: feet at (x, footY), `h` tall, optionally mirrored
+function drawDimSprite(ctx, name, x, footY, h, mirror, alpha) {
+  const img = dimSprite(name);
+  if (!img) return false;
+  const w = h * (img.width / img.height);
+  ctx.save();
+  if (alpha !== undefined) ctx.globalAlpha = alpha;
+  ctx.translate(x, footY - h);
+  if (mirror) ctx.scale(-1, 1);
+  ctx.drawImage(img, -w / 2, 0, w, h);
+  ctx.restore();
+  return true;
+}
+
 function drawDim() {
   const ctx = dimCtx, d = dim;
   if (!ctx || !d || !dimCssW) return;
   ctx.setTransform(dimDpr, 0, 0, dimDpr, 0, 0);
-  ctx.fillStyle = '#0d0618';
+  ctx.fillStyle = '#05060f';
   ctx.fillRect(0, 0, dimCssW, dimCssH);
   ctx.setTransform(dimScale * dimDpr, 0, 0, dimScale * dimDpr, dimOffX * dimDpr, dimOffY * dimDpr);
   const t = d.t;
 
-  // floor
+  // floor: dark blue-black with glowing purple cracks (matches the character sheet)
   const g = ctx.createRadialGradient(DIM_W / 2, DIM_H / 2, 60, DIM_W / 2, DIM_H / 2, 540);
-  g.addColorStop(0, '#4a1238'); g.addColorStop(1, '#14061c');
+  g.addColorStop(0, '#232a4a'); g.addColorStop(1, '#0a0d1f');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, DIM_W, DIM_H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
+  for (let x = 0; x <= DIM_W; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, DIM_H); ctx.stroke(); }
+  for (let y = 0; y <= DIM_H; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(DIM_W, y); ctx.stroke(); }
   ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(255,120,40,' + (0.45 + Math.sin(t * 2) * 0.15).toFixed(2) + ')';
+  ctx.strokeStyle = 'rgba(176,77,255,' + (0.5 + Math.sin(t * 2) * 0.18).toFixed(2) + ')';
   DIM_CRACKS.forEach(pts => { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); });
-  ctx.fillStyle = 'rgba(255,170,80,0.55)';
-  for (let i = 0; i < 26; i++) {                // floating embers
+  ctx.fillStyle = 'rgba(190,120,255,0.6)';
+  for (let i = 0; i < 26; i++) {                // floating sparks
     const x = (i * 83 + Math.sin(t + i) * 20) % DIM_W, y = DIM_H - ((t * 30 + i * 61) % DIM_H);
     ctx.fillRect(x, y, 3, 3);
   }
-  ctx.lineWidth = 6; ctx.strokeStyle = '#ff5a1f';
+  ctx.lineWidth = 6; ctx.strokeStyle = '#ff6a1f';
   ctx.strokeRect(3, 3, DIM_W - 6, DIM_H - 6);
 
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
   d.drops.forEach(p => { ctx.font = '26px ' + WORLD_EMOJI_FONT; ctx.fillText('🏹', p.x, p.y + Math.sin(t * 6) * 3); });
 
-  // demons, back to front
-  d.mons.slice().sort((a, b) => a.y - b.y).forEach(m => {
-    const T = DIM_TYPES[m.type];
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.ellipse(m.x, m.y + m.r * 0.8, m.r, m.r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
-    if (m.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.arc(m.x, m.y, m.r + 4, 0, Math.PI * 2); ctx.fill(); }
-    ctx.font = T.size + 'px ' + WORLD_EMOJI_FONT;
-    ctx.fillText(T.e, m.x, m.y);
-    if (m.hp < m.maxHp && m.type !== 'boss') {
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(m.x - m.r, m.y - m.r - 10, m.r * 2, 5);
-      ctx.fillStyle = '#ff4d4d'; ctx.fillRect(m.x - m.r, m.y - m.r - 10, m.r * 2 * (m.hp / m.maxHp), 5);
-    }
-    if (m.type === 'boss') {
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(60, 14, DIM_W - 120, 12);
-      ctx.fillStyle = '#ff2d55'; ctx.fillRect(60, 14, (DIM_W - 120) * Math.max(0, m.hp / m.maxHp), 12);
-    }
+  // everything standing on the floor, back to front
+  const things = [];
+  d.mons.forEach(m => things.push({ y: m.y, draw: () => drawDimMonster(ctx, m, t) }));
+  if (d.state !== 'pick') things.push({ y: d.py, draw: () => drawDimHero(ctx, d, t) });
+  things.sort((a, b) => a.y - b.y).forEach(it => it.draw());
+
+  // boss health bar
+  d.mons.forEach(m => {
+    if (m.type !== 'boss') return;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(60, 14, DIM_W - 120, 12);
+    ctx.fillStyle = '#c02bff'; ctx.fillRect(60, 14, (DIM_W - 120) * Math.max(0, m.hp / m.maxHp), 12);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.strokeRect(60, 14, DIM_W - 120, 12);
   });
 
-  d.fireballs.forEach(fb => { ctx.font = '24px ' + WORLD_EMOJI_FONT; ctx.fillText('🔥', fb.x, fb.y); });
-
-  // player
-  const blink = d.invuln > 0 && Math.floor(t * 14) % 2 === 0;
-  if (!blink) {
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.ellipse(d.px, d.py + 16, 15, 5, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(d.px, d.py, 17, 0, Math.PI * 2);
-    ctx.fillStyle = d.hitFlash > 0 ? '#ff4d4d' : '#ff4d8d'; ctx.fill();
-    ctx.strokeStyle = 'white'; ctx.lineWidth = 3; ctx.stroke();
-    const img = currentUser.profilePicture ? getWorldImage(currentUser.profilePicture) : null;
-    if (img) {
-      ctx.save(); ctx.beginPath(); ctx.arc(d.px, d.py, 14, 0, Math.PI * 2); ctx.clip();
-      ctx.drawImage(img, d.px - 14, d.py - 14, 28, 28); ctx.restore();
-    }
-    ctx.font = '18px ' + WORLD_EMOJI_FONT;
-    ctx.fillText('🗡️', d.px + d.face.x * 26, d.py + d.face.y * 26);
-  }
+  // energy blasts
+  d.fireballs.forEach(fb => {
+    ctx.drawImage(dimGlow('#c04dff'), fb.x - 18, fb.y - 18, 36, 36);
+    ctx.fillStyle = '#f3d9ff'; ctx.beginPath(); ctx.arc(fb.x, fb.y, 5, 0, Math.PI * 2); ctx.fill();
+  });
 
   d.shots.forEach(s => {
     const a = Math.atan2(s.vy, s.vx);
@@ -2816,13 +2913,86 @@ function drawDim() {
   d.fx.forEach(f => { ctx.globalAlpha = Math.min(1, f.life * 3); ctx.fillStyle = f.col; ctx.fillRect(f.x - 2, f.y - 2, 4, 4); });
   ctx.globalAlpha = 1;
 
+  d.pops.forEach(p => {
+    ctx.globalAlpha = Math.min(1, p.life * 2);
+    ctx.font = 'bold 20px Arial'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.fillStyle = p.color;
+    ctx.strokeText(p.text, p.x, p.y); ctx.fillText(p.text, p.x, p.y);
+  });
+  ctx.globalAlpha = 1;
+
   if (d.state === 'intro' || d.state === 'cleared') {
     ctx.save();
     ctx.globalAlpha = Math.min(1, d.stateT * 1.5);
-    ctx.font = 'bold 34px Arial'; ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.fillStyle = '#ffe066';
+    ctx.font = 'bold 34px Arial'; ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.fillStyle = '#ffb347';
     ctx.strokeText(d.banner, DIM_W / 2, DIM_H * 0.32);
     ctx.fillText(d.banner, DIM_W / 2, DIM_H * 0.32);
     ctx.restore();
+  }
+}
+
+function drawDimMonster(ctx, m, t) {
+  const T = DIM_TYPES[m.type];
+  const air = T.fly ? 14 + Math.sin(t * 8 + m.x) * 4 : 0;           // the bat flies above the floor
+  const foot = m.y + m.r * 0.8;
+
+  ctx.drawImage(dimGlow(T.glow), m.x - m.r * 2.2, foot - m.r * 0.9, m.r * 4.4, m.r * 1.8);   // glowing ring under it
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath(); ctx.ellipse(m.x, foot, m.r, m.r * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+  if (m.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.arc(m.x, m.y - air, m.r + 5, 0, Math.PI * 2); ctx.fill(); }
+
+  // sprites face left in the art for the hound; mirror when it moves right
+  const mirror = T.faceLeft ? m.faceR : false;
+  const bob = m.type === 'imp' ? Math.sin(t * 6 + m.x) * 2 : 0;
+  if (!drawDimSprite(ctx, T.sprite, m.x, foot - air + bob, T.h, mirror)) {
+    ctx.fillStyle = '#7a2fd0'; ctx.beginPath(); ctx.arc(m.x, m.y - air, m.r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  if (m.tele > 0) {                                                  // hound warning
+    ctx.font = 'bold 26px Arial'; ctx.fillStyle = '#ff3b3b'; ctx.lineWidth = 4; ctx.strokeStyle = '#fff';
+    ctx.strokeText('!', m.x, m.y - m.r - 26); ctx.fillText('!', m.x, m.y - m.r - 26);
+  }
+  if (m.hp < m.maxHp && m.type !== 'boss') {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(m.x - m.r, m.y - T.h - 4, m.r * 2, 5);
+    ctx.fillStyle = '#c04dff'; ctx.fillRect(m.x - m.r, m.y - T.h - 4, m.r * 2 * (m.hp / m.maxHp), 5);
+  }
+}
+
+function drawDimHero(ctx, d, t) {
+  const H = d.hero;
+  const blink = d.invuln > 0 && Math.floor(t * 14) % 2 === 0;
+  const foot = d.py + 18;
+
+  ctx.drawImage(dimGlow(H.color), d.px - 46, foot - 17, 92, 34);     // glowing ring in the hero's colour
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath(); ctx.ellipse(d.px, foot, 15, 5, 0, 0, Math.PI * 2); ctx.fill();
+  if (d.hitFlash > 0) { ctx.fillStyle = 'rgba(255,60,90,0.45)'; ctx.beginPath(); ctx.arc(d.px, d.py - 14, 30, 0, Math.PI * 2); ctx.fill(); }
+
+  const walking = !!d.target;
+  const bob = walking ? -Math.abs(Math.sin(t * 14)) * 3 : 0;
+  if (!blink) {
+    // the art faces front-left; mirror it when walking right
+    if (!drawDimSprite(ctx, d.heroId, d.px, foot + bob, 74, d.flip)) {
+      ctx.beginPath(); ctx.arc(d.px, d.py, 17, 0, Math.PI * 2);
+      ctx.fillStyle = H.color; ctx.fill(); ctx.strokeStyle = 'white'; ctx.lineWidth = 3; ctx.stroke();
+    }
+  }
+
+  // Ori, the companion orb, with a tip at the start of each level
+  const ox = d.oriX, oy = d.oriY;
+  ctx.drawImage(dimGlow('#ff6ad5'), ox - 20, oy - 14, 40, 40);
+  if (!drawDimSprite(ctx, 'ori', ox, oy + 16, 30, false)) {
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ox, oy, 9, 0, Math.PI * 2); ctx.fill();
+  }
+  if (d.state === 'intro' && d.stateT > 0.2) {
+    const lines = DIM_TIPS[d.level] || [];
+    ctx.font = '13px Arial';
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 18, h = lines.length * 17 + 12;
+    const bx = Math.min(DIM_W - w - 6, Math.max(6, ox - w / 2)), by = Math.max(6, oy - 30 - h);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    worldRoundRect(ctx, bx, by, w, h, 10); ctx.fill();
+    ctx.fillStyle = '#2a1a44'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    lines.forEach((l, i) => ctx.fillText(l, bx + 9, by + 6 + 8.5 + i * 17));
+    ctx.textAlign = 'center';
   }
 }
 
