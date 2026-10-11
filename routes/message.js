@@ -4,6 +4,16 @@ const User = require("../models/User");
 
 const router = express.Router();
 
+// what to show in the conversation list for photos, videos, documents and locations
+function previewOf(msg) {
+  if (msg.deletedForEveryone) return "🚫 This message was deleted";
+  if (msg.kind === "image") return "📷 Photo";
+  if (msg.kind === "video") return "🎥 Video";
+  if (msg.kind === "document") return "📄 " + ((msg.attachment && msg.attachment.name) || "Document");
+  if (msg.kind === "location") return "📍 Location";
+  return msg.text;
+}
+
 // Get unread message count
 router.get("/unread/count", async (req, res) => {
   try {
@@ -37,7 +47,7 @@ router.get("/", async (req, res) => {
       if (!conversationsMap[otherId]) {
         conversationsMap[otherId] = {
           userId: otherId,
-          lastMessage: msg.deletedForEveryone ? "🚫 This message was deleted" : msg.text,
+          lastMessage: previewOf(msg),
           lastMessageAt: msg.createdAt,
           unreadCount: 0
         };
@@ -90,7 +100,12 @@ router.get("/:userId", async (req, res) => {
 
     const shaped = messages.map(m => {
       const obj = m.toObject();
-      if (obj.deletedForEveryone) obj.text = "🚫 This message was deleted";
+      if (obj.deletedForEveryone) {
+        obj.text = "🚫 This message was deleted";
+        obj.kind = "text";
+        delete obj.attachment;
+        delete obj.location;
+      }
       return obj;
     });
 

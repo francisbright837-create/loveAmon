@@ -257,6 +257,23 @@
     .hero-card span { font-size: 12px; opacity: 0.85; line-height: 1.25; }
     .hero-card:active { transform: scale(0.97); }
     .dim-act:active { transform: scale(0.92); }
+    /* chat: photos, videos, documents, location, groups */
+    .chat-media { display: block; max-width: 100%; width: 240px; border-radius: 10px; cursor: pointer; background: #000; }
+    .chat-bubble-media { padding: 5px !important; }
+    .chat-doc, .chat-loc {
+      display: flex; align-items: center; gap: 10px; min-width: 190px; max-width: 260px;
+      padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.35); color: inherit; text-decoration: none;
+    }
+    .attach-opt {
+      display: block; width: 100%; max-width: none; margin: 0; padding: 14px 18px; border: none; border-radius: 0;
+      background: none; color: #333; font-size: 15px; text-align: left; cursor: pointer;
+    }
+    .attach-opt:hover { background: #ffe6f0; }
+    .friend-row {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px;
+      background: #fff; margin-bottom: 6px; cursor: pointer;
+    }
+    .friend-row img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
     .feed-search-bar input {
       flex: 1; min-width: 0;
       max-width: none;
@@ -488,6 +505,8 @@
     <!-- Messages List Screen -->
     <div id="messages-screen" style="display:none; padding:0 15px;">
       <h2>Your Conversations 💬</h2>
+      <button onclick="openCreateGroup()" style="max-width:300px;">➕ New group</button>
+      <div id="groups-list"></div>
       <div id="conversations-list"></div>
     </div>
 
@@ -600,17 +619,54 @@
     <div id="chat-screen" style="display:none; max-width:600px; margin:0 auto; padding:0 15px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
         <button onclick="closeChat()" style="padding:8px 16px;">← Back</button>
-        <h3>Chat with <span id="chat-with-name">...</span></h3>
-        <div></div>
+        <h3 id="chat-title">Chat</h3>
+        <button id="group-info-btn" onclick="openGroupInfo()" style="display:none; width:auto; padding:8px 14px;" aria-label="Group info">ℹ️</button>
       </div>
 
       <div id="chat-messages" style="height:400px; overflow-y:auto; border:1px solid #ddd; border-radius:10px; padding:15px; background:#fafafa; margin-bottom:15px;">
         <p style="text-align:center; color:#888;">Loading messages...</p>
       </div>
 
-      <div style="display:flex; gap:8px; align-items:center;">
-        <input type="text" id="message-input" placeholder="Type a message..." style="flex:1; padding:12px 16px; border-radius:25px; border:1px solid #ddd; margin:0;">
+      <div id="chat-status" style="display:none; text-align:center; color:#888; font-size:13px; margin-bottom:6px;"></div>
+
+      <div style="position:relative; display:flex; gap:8px; align-items:center;">
+        <div id="attach-menu" style="display:none; position:absolute; bottom:58px; left:0; background:white; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.25); overflow:hidden; z-index:30; min-width:200px;">
+          <button class="attach-opt" onclick="pickChatFile('media')">📷 Photo or video</button>
+          <button class="attach-opt" onclick="pickChatFile('doc')">📄 Document</button>
+          <button class="attach-opt" onclick="shareChatLocation()">📍 My location</button>
+        </div>
+        <button onclick="toggleAttachMenu(event)" aria-label="Attach" style="width:44px; height:44px; min-width:44px; border-radius:50%; background:white; color:#ff4d8d; border:1px solid #ddd; cursor:pointer; padding:0; margin:0; font-size:22px;">📎</button>
+        <input type="text" id="message-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter') sendMessage()" style="flex:1; padding:12px 16px; border-radius:25px; border:1px solid #ddd; margin:0; min-width:0;">
         <button onclick="sendMessage()" style="width:48px; height:48px; min-width:48px; border-radius:50%; background:#25D366; color:white; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; margin:0; font-size:20px;">➤</button>
+      </div>
+      <input type="file" id="chat-file-media" accept="image/*,video/*" style="display:none;" onchange="onChatFilePicked(this)">
+      <input type="file" id="chat-file-doc" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" style="display:none;" onchange="onChatFilePicked(this)">
+    </div>
+
+    <!-- New group screen -->
+    <div id="group-create-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <button onclick="showTab('messages')" style="width:auto; padding:8px 16px; margin:0;">← Back</button>
+        <h3 style="margin:0;">New group 👥</h3>
+        <div style="width:70px;"></div>
+      </div>
+      <input type="text" id="group-name-input" placeholder="Group name" maxlength="40">
+      <p style="text-align:left; margin:10px 0 6px; font-weight:600;">Add friends:</p>
+      <div id="group-friends" style="text-align:left; max-height:360px; overflow-y:auto;"></div>
+      <button onclick="createGroup()">Create group</button>
+    </div>
+
+    <!-- Photo viewer -->
+    <div id="media-viewer" onclick="closeMediaViewer()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:15000; align-items:center; justify-content:center; padding:16px; box-sizing:border-box;">
+      <div id="media-viewer-body" style="max-width:100%; max-height:100%; display:flex;"></div>
+      <button onclick="closeMediaViewer()" style="position:absolute; top:14px; right:14px; width:44px; height:44px; border-radius:50%; margin:0; padding:0; background:rgba(255,255,255,0.2);">✕</button>
+    </div>
+
+    <!-- Group info -->
+    <div id="group-info" onclick="if(event.target===this) closeGroupInfo()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:15000; align-items:center; justify-content:center; padding:16px; box-sizing:border-box;">
+      <div style="background:white; border-radius:16px; padding:16px; width:min(100%, 400px); max-height:85vh; overflow-y:auto; text-align:left;">
+        <div id="group-info-body"></div>
+        <button onclick="closeGroupInfo()" style="background:#444;">Close</button>
       </div>
     </div>
 

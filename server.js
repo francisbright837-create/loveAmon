@@ -104,6 +104,7 @@ const messageRoutes = require("./routes/message");
 const adminRoutes = require("./routes/admin");
 const videoRoutes = require("./routes/video");
 const followRoutes = require("./routes/follow");
+const chatRoutes = require("./routes/chat");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", authMiddleware, profileRoutes);
@@ -112,6 +113,7 @@ app.use("/api/messages", authMiddleware, messageRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/videos", authMiddleware, videoRoutes);
 app.use("/api/follow", authMiddleware, followRoutes);
+app.use("/api/chat", authMiddleware, chatRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({

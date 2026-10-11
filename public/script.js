@@ -236,7 +236,7 @@ function hideAllScreens() {
   pauseAllVideos();
   [
     'matching-screen', 'messages-screen', 'my-profile-screen',
-    'upload-video-screen', 'edit-profile-screen', 'chat-screen',
+    'upload-video-screen', 'edit-profile-screen', 'chat-screen', 'group-create-screen',
     'video-feed-screen', 'video-detail-screen', 'public-profile-screen',
     'map-screen', 'world-screen', 'camera-screen', 'portal-screen'
   ].forEach(id => {
@@ -1053,14 +1053,32 @@ async function likeUser(targetId, targetName) {
 
 // ==================== MESSAGES LIST ====================
 
+function chatAuth(json) {
+  const h = { 'Authorization': 'Bearer ' + token };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
+function chatEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// only ever show pictures/videos/links that come from a secure address
+function chatSafeUrl(u) { return typeof u === 'string' && /^https:\/\//i.test(u) ? u : ''; }
+
+function chatFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
 async function loadConversations() {
   const container = document.getElementById('conversations-list');
   container.innerHTML = '<p>Loading conversations...</p>';
+  loadGroupsList();
 
   try {
-    const res = await fetch(API_URL + '/messages', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
+    const res = await fetch(API_URL + '/messages', { headers: chatAuth(false) });
     if (handleAuthFailure(res.status)) return;
     const conversations = await res.json();
     if (!res.ok) throw new Error(conversations.message || 'Failed to load conversations');
@@ -1070,60 +1088,182 @@ async function loadConversations() {
       return;
     }
 
-    container.innerHTML = conversations.map(c => `
-      <div class="conversation-item" onclick="openChat('${c.userId}', '${c.name}')">
-        ${c.profilePicture ? `<img src="${c.profilePicture}">` : ''}
-        <div style="flex:1;">
-          <strong>${c.name}</strong>
-          <p style="margin:0; color:#666; font-size:14px;">${c.lastMessage}</p>
-        </div>
-        ${c.unreadCount > 0 ? `<span style="background:red; color:white; border-radius:50%; padding:4px 10px; font-size:12px;">${c.unreadCount}</span>` : ''}
-      </div>
-    `).join('');
-
+    container.textContent = '';
+    conversations.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'conversation-item';
+      item.onclick = () => openChat(c.userId, c.name);
+      if (c.profilePicture) {
+        const img = document.createElement('img');
+        img.src = c.profilePicture;
+        item.appendChild(img);
+      }
+      const mid = document.createElement('div');
+      mid.style.flex = '1';
+      const name = document.createElement('strong'); name.textContent = c.name;
+      const last = document.createElement('p');
+      last.style.cssText = 'margin:0; color:#666; font-size:14px;';
+      last.textContent = c.lastMessage;
+      mid.append(name, last);
+      item.appendChild(mid);
+      if (c.unreadCount > 0) {
+        const badge = document.createElement('span');
+        badge.style.cssText = 'background:red; color:white; border-radius:50%; padding:4px 10px; font-size:12px;';
+        badge.textContent = c.unreadCount;
+        item.appendChild(badge);
+      }
+      container.appendChild(item);
+    });
   } catch (err) {
     container.innerHTML = '<p>Could not load conversations.</p>';
   }
 }
 
+async function loadGroupsList() {
+  const box = document.getElementById('groups-list');
+  if (!box) return;
+  try {
+    const res = await fetch(API_URL + '/chat/groups', { headers: chatAuth(false) });
+    if (handleAuthFailure(res.status)) return;
+    const groups = await res.json();
+    if (!res.ok || !Array.isArray(groups)) throw new Error('x');
+    box.textContent = '';
+    if (!groups.length) return;
+    const title = document.createElement('h3');
+    title.textContent = 'Groups 👥';
+    title.style.margin = '10px 0';
+    box.appendChild(title);
+    groups.forEach(g => {
+      const item = document.createElement('div');
+      item.className = 'conversation-item';
+      item.onclick = () => openGroupChat(g._id, g.name);
+      const icon = document.createElement('div');
+      icon.textContent = '👥';
+      icon.style.cssText = 'width:50px; height:50px; border-radius:50%; background:#ffd1e3; display:flex; align-items:center; justify-content:center; font-size:24px; flex:none;';
+      const mid = document.createElement('div');
+      mid.style.cssText = 'flex:1; min-width:0;';
+      const name = document.createElement('strong'); name.textContent = g.name + '  ·  ' + g.membersCount + ' people';
+      const last = document.createElement('p');
+      last.style.cssText = 'margin:0; color:#666; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+      last.textContent = g.lastMessage;
+      mid.append(name, last);
+      item.append(icon, mid);
+      box.appendChild(item);
+    });
+  } catch (err) {
+    box.textContent = '';
+  }
+}
+
 // ==================== CHAT ====================
 
-async function openChat(userId, userName) {
-  currentChatUserId = userId;
+let currentGroupId = null;
+let chatPollTimer = null;
+let chatLastSig = '';
+let chatForceBottom = false;
+const CHAT_MAX_MB = { image: 10, video: 50, document: 10 };
+
+function prepareChatScreen(title, isGroup) {
   hideAllScreens();
   document.getElementById('chat-screen').style.display = 'block';
-  document.getElementById('chat-with-name').textContent = userName;
+  document.getElementById('chat-title').textContent = title;
+  document.getElementById('group-info-btn').style.display = isGroup ? 'inline-block' : 'none';
+  document.getElementById('attach-menu').style.display = 'none';
+  setChatBusy(false);
+  chatLastSig = '';
+  chatForceBottom = true;
+}
+
+async function openChat(userId, userName) {
+  currentGroupId = null;
+  currentChatUserId = userId;
+  prepareChatScreen('Chat with ' + userName, false);
   await loadMessages(userId);
   checkUnreadMessages();
+  startChatPolling();
+}
+
+async function openGroupChat(groupId, name) {
+  currentChatUserId = null;
+  currentGroupId = groupId;
+  prepareChatScreen('👥 ' + name, true);
+  await loadGroupMessages(groupId);
+  startChatPolling();
 }
 
 function closeChat() {
+  stopChatPolling();
+  closeGroupInfo();
   document.getElementById('chat-screen').style.display = 'none';
   showTab('messages');
   currentChatUserId = null;
+  currentGroupId = null;
 }
 
-async function loadMessages(userId) {
+// new messages show up by themselves every few seconds while a chat is open
+function startChatPolling() {
+  stopChatPolling();
+  chatPollTimer = setInterval(async () => {
+    if (document.getElementById('chat-screen').style.display === 'none') { stopChatPolling(); return; }
+    try {
+      if (currentGroupId) await loadGroupMessages(currentGroupId, true);
+      else if (currentChatUserId) await loadMessages(currentChatUserId, true);
+    } catch (e) { /* try again next time */ }
+  }, 4000);
+}
+function stopChatPolling() {
+  if (chatPollTimer) clearInterval(chatPollTimer);
+  chatPollTimer = null;
+}
+
+function chatSignature(msgs) {
+  return msgs.map(m => m._id + (m.deletedForEveryone ? 'd' : '')).join(',');
+}
+
+// draws the messages (when `silent`, only if something changed, and without jumping the scroll)
+function showChatMessages(messages, silent) {
+  const sig = chatSignature(messages);
+  if (silent && sig === chatLastSig) return false;
+  const box = document.getElementById('chat-messages');
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  chatLastSig = sig;
+  renderMessages(messages, silent && !nearBottom && !chatForceBottom);
+  chatForceBottom = false;
+  return true;
+}
+
+async function loadMessages(userId, silent) {
   const container = document.getElementById('chat-messages');
-  container.innerHTML = '<p style="text-align:center; color:#888;">Loading messages...</p>';
+  if (!silent) container.innerHTML = '<p style="text-align:center; color:#888;">Loading messages...</p>';
 
   try {
-    const res = await fetch(API_URL + '/messages/' + userId, {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
+    const res = await fetch(API_URL + '/messages/' + userId, { headers: chatAuth(false) });
     if (handleAuthFailure(res.status)) return;
     const messages = await res.json();
     if (!res.ok) throw new Error(messages.message || 'Failed to load messages');
+    if (userId !== currentChatUserId) return;
 
-    renderMessages(messages);
-
-    fetch(API_URL + '/messages/read/' + userId, {
-      method: 'PUT',
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-
+    if (showChatMessages(messages, silent)) {
+      fetch(API_URL + '/messages/read/' + userId, { method: 'PUT', headers: chatAuth(false) });
+    }
   } catch (err) {
-    container.innerHTML = '<p style="text-align:center; color:#888;">Could not load messages.</p>';
+    if (!silent) container.innerHTML = '<p style="text-align:center; color:#888;">Could not load messages.</p>';
+  }
+}
+
+async function loadGroupMessages(groupId, silent) {
+  const container = document.getElementById('chat-messages');
+  if (!silent) container.innerHTML = '<p style="text-align:center; color:#888;">Loading messages...</p>';
+
+  try {
+    const res = await fetch(API_URL + '/chat/groups/' + groupId + '/messages', { headers: chatAuth(false) });
+    if (handleAuthFailure(res.status)) return;
+    const messages = await res.json();
+    if (!res.ok) throw new Error(messages.message || 'Failed to load messages');
+    if (groupId !== currentGroupId) return;
+    showChatMessages(messages, silent);
+  } catch (err) {
+    if (!silent) container.innerHTML = '<p style="text-align:center; color:#888;">Could not load messages.</p>';
   }
 }
 
@@ -1137,8 +1277,78 @@ function formatMessageTime(dateStr) {
   return date + ' ' + time;
 }
 
-function renderMessages(messages) {
+function chatDocIcon(name) {
+  const ext = (String(name).split('.').pop() || '').toLowerCase();
+  if (ext === 'pdf') return '📕';
+  if (ext === 'doc' || ext === 'docx') return '📘';
+  if (ext === 'xls' || ext === 'xlsx' || ext === 'csv') return '📗';
+  if (ext === 'ppt' || ext === 'pptx') return '📙';
+  return '📄';
+}
+
+// puts the right thing in a message bubble: text, photo, video, document or location
+function renderMessageBody(bubble, msg) {
+  const kind = msg.kind || 'text';
+  if (msg.deletedForEveryone) {
+    bubble.textContent = '🚫 This message was deleted';
+    bubble.style.fontStyle = 'italic';
+    return;
+  }
+
+  const url = msg.attachment ? chatSafeUrl(msg.attachment.url) : '';
+  if (kind === 'image' && url) {
+    bubble.classList.add('chat-bubble-media');
+    const img = document.createElement('img');
+    img.src = url; img.loading = 'lazy'; img.className = 'chat-media'; img.alt = 'Photo';
+    img.onclick = () => openMediaViewer(url, 'image');
+    bubble.appendChild(img);
+  } else if (kind === 'video' && url) {
+    bubble.classList.add('chat-bubble-media');
+    const vid = document.createElement('video');
+    vid.src = url; vid.controls = true; vid.playsInline = true; vid.preload = 'metadata'; vid.className = 'chat-media';
+    bubble.appendChild(vid);
+  } else if (kind === 'document' && url) {
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'chat-doc';
+    const icon = document.createElement('span'); icon.textContent = chatDocIcon(msg.attachment.name); icon.style.fontSize = '28px';
+    const info = document.createElement('span'); info.style.cssText = 'display:flex; flex-direction:column; min-width:0; text-align:left;';
+    const nm = document.createElement('b'); nm.textContent = msg.attachment.name || 'Document';
+    nm.style.cssText = 'font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+    const sub = document.createElement('small'); sub.textContent = chatFileSize(msg.attachment.size) + (msg.attachment.size ? ' · ' : '') + 'Tap to open';
+    info.append(nm, sub);
+    a.append(icon, info);
+    bubble.appendChild(a);
+  } else if (kind === 'location' && msg.location && Number.isFinite(msg.location.lat)) {
+    const { lat, lng } = msg.location;
+    const a = document.createElement('a');
+    a.href = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+    a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'chat-loc';
+    const pin = document.createElement('span'); pin.textContent = '📍'; pin.style.fontSize = '30px';
+    const info = document.createElement('span'); info.style.cssText = 'display:flex; flex-direction:column; text-align:left;';
+    const t1 = document.createElement('b'); t1.textContent = 'Shared location';
+    const t2 = document.createElement('small'); t2.textContent = lat.toFixed(4) + ', ' + lng.toFixed(4) + ' · Open in Maps ↗';
+    info.append(t1, t2);
+    a.append(pin, info);
+    bubble.appendChild(a);
+  } else if (kind === 'text') {
+    bubble.textContent = msg.text;
+    return;
+  } else {
+    bubble.textContent = msg.text || '[attachment]';
+    return;
+  }
+
+  if (msg.text) {                       // caption under the photo / video / document
+    const cap = document.createElement('div');
+    cap.textContent = msg.text;
+    cap.style.cssText = 'margin-top:6px; padding:0 4px 2px;';
+    bubble.appendChild(cap);
+  }
+}
+
+function renderMessages(messages, keepScroll) {
   const container = document.getElementById('chat-messages');
+  const prevScroll = container.scrollTop;
   container.innerHTML = '';
 
   if (!messages.length) {
@@ -1146,23 +1356,30 @@ function renderMessages(messages) {
     return;
   }
 
+  const inGroup = !!currentGroupId;
   messages.forEach(msg => {
-    const senderId = msg.sender._id || msg.sender;
-    const isMine = senderId === currentUser.id;
+    const senderId = String((msg.sender && msg.sender._id) || msg.sender);
+    const isMine = senderId === String(currentUser.id);
 
     const outer = document.createElement('div');
-    outer.style.cssText = 'display:flex; flex-direction:column;' + (isMine ? ' align-items:flex-end;' : ' align-items:flex-start;');
-    outer.style.margin = '5px 0';
+    outer.style.cssText = 'display:flex; flex-direction:column; margin:5px 0;' + (isMine ? ' align-items:flex-end;' : ' align-items:flex-start;');
+
+    if (inGroup && !isMine && msg.sender && msg.sender.name) {
+      const who = document.createElement('div');
+      who.style.cssText = 'font-size:12px; color:#ff4d8d; font-weight:600; margin:0 0 2px 4px;';
+      who.textContent = msg.sender.name;
+      outer.appendChild(who);
+    }
 
     const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;' + (isMine ? ' justify-content:flex-end;' : '');
+    wrap.style.cssText = 'display:flex; max-width:100%;' + (isMine ? ' justify-content:flex-end;' : '');
 
     const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
     bubble.style.cssText = isMine
-      ? 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; max-width:70%; text-align:right; cursor:pointer;'
-      : 'background:#eee; color:#333; padding:10px; border-radius:10px; max-width:70%; text-align:left;';
-    bubble.textContent = msg.deletedForEveryone ? '🚫 This message was deleted' : msg.text;
-    if (msg.deletedForEveryone) bubble.style.fontStyle = 'italic';
+      ? 'background:#ff4d8d; color:white; padding:10px; border-radius:10px; max-width:75%; text-align:right; cursor:pointer;'
+      : 'background:#eee; color:#333; padding:10px; border-radius:10px; max-width:75%; text-align:left;';
+    renderMessageBody(bubble, msg);
 
     if (isMine && !msg.deletedForEveryone) {
       bubble.oncontextmenu = (e) => {
@@ -1182,7 +1399,7 @@ function renderMessages(messages) {
     container.appendChild(outer);
   });
 
-  container.scrollTop = container.scrollHeight;
+  container.scrollTop = keepScroll ? prevScroll : container.scrollHeight;
 }
 
 function openMessageContextMenu(e, messageId) {
@@ -1196,6 +1413,8 @@ function openMessageContextMenu(e, messageId) {
 document.addEventListener('click', () => {
   const menu = document.getElementById('msg-context-menu');
   if (menu) menu.style.display = 'none';
+  const attach = document.getElementById('attach-menu');
+  if (attach) attach.style.display = 'none';
 });
 
 async function confirmDeleteMessage(mode) {
@@ -1203,16 +1422,17 @@ async function confirmDeleteMessage(mode) {
   if (!contextMenuMessageId) return;
 
   try {
-    const res = await fetch(API_URL + '/messages/' + contextMenuMessageId + '?mode=' + mode, {
-      method: 'DELETE',
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
+    const url = currentGroupId
+      ? API_URL + '/chat/groups/' + currentGroupId + '/messages/' + contextMenuMessageId + '?mode=' + mode
+      : API_URL + '/messages/' + contextMenuMessageId + '?mode=' + mode;
+    const res = await fetch(url, { method: 'DELETE', headers: chatAuth(false) });
     if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to delete message');
 
-    if (currentChatUserId) await loadMessages(currentChatUserId);
-
+    chatLastSig = '';
+    if (currentGroupId) await loadGroupMessages(currentGroupId, true);
+    else if (currentChatUserId) await loadMessages(currentChatUserId, true);
   } catch (err) {
     showMessage('❌ ' + err.message);
   } finally {
@@ -1220,31 +1440,277 @@ async function confirmDeleteMessage(mode) {
   }
 }
 
+// where to send things: the person I'm chatting with, or the group
+function chatEndpoint(what) {
+  if (currentGroupId) {
+    return API_URL + '/chat/groups/' + currentGroupId + (what === 'text' ? '/messages' : '/' + what);
+  }
+  if (!currentChatUserId) return null;
+  return what === 'text' ? API_URL + '/messages/' + currentChatUserId : API_URL + '/chat/direct/' + currentChatUserId + '/' + what;
+}
+
+async function refreshAfterSend() {
+  chatLastSig = '';
+  chatForceBottom = true;
+  if (currentGroupId) await loadGroupMessages(currentGroupId, true);
+  else if (currentChatUserId) await loadMessages(currentChatUserId, true);
+}
+
+function setChatBusy(text) {
+  const bar = document.getElementById('chat-status');
+  if (!bar) return;
+  bar.textContent = text || '';
+  bar.style.display = text ? 'block' : 'none';
+}
+
 async function sendMessage() {
   const input = document.getElementById('message-input');
   const text = input?.value?.trim();
-  if (!text || !currentChatUserId) return;
+  const url = chatEndpoint('text');
+  if (!text || !url) return;
 
   input.value = '';
-
   try {
-    const res = await fetch(API_URL + '/messages/' + currentChatUserId, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + token
-      },
-      body: JSON.stringify({ text })
-    });
+    const res = await fetch(url, { method: 'POST', headers: chatAuth(true), body: JSON.stringify({ text }) });
     if (handleAuthFailure(res.status)) return;
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to send message');
-
-    await loadMessages(currentChatUserId);
-
+    await refreshAfterSend();
   } catch (err) {
     showMessage('❌ ' + err.message);
   }
+}
+
+// ---------- photos, videos, documents, location ----------
+
+function toggleAttachMenu(e) {
+  if (e) e.stopPropagation();
+  const m = document.getElementById('attach-menu');
+  m.style.display = m.style.display === 'block' ? 'none' : 'block';
+}
+
+function pickChatFile(kind) {
+  document.getElementById('attach-menu').style.display = 'none';
+  document.getElementById(kind === 'doc' ? 'chat-file-doc' : 'chat-file-media').click();
+}
+
+async function onChatFilePicked(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const kind = file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : 'document';
+  if (file.size > CHAT_MAX_MB[kind] * 1024 * 1024) {
+    showMessage('❌ That file is too big (max ' + CHAT_MAX_MB[kind] + ' MB)');
+    return;
+  }
+  await uploadChatFile(file);
+}
+
+async function uploadChatFile(file) {
+  const url = chatEndpoint('attachment');
+  if (!url) return;
+  const input = document.getElementById('message-input');
+  const caption = input.value.trim();
+  setChatBusy('Sending ' + file.name + '... ⏳');
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (caption) fd.append('text', caption);
+    const res = await fetch(url, { method: 'POST', headers: chatAuth(false), body: fd });
+    if (handleAuthFailure(res.status)) return;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Could not send the file');
+    if (caption) input.value = '';
+    await refreshAfterSend();
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  } finally {
+    setChatBusy(false);
+  }
+}
+
+async function shareChatLocation() {
+  document.getElementById('attach-menu').style.display = 'none';
+  if (!navigator.geolocation) { showMessage('❌ Location is not available on this device'); return; }
+  const who = currentGroupId ? 'this group' : document.getElementById('chat-title').textContent.replace('Chat with ', '');
+  if (!confirm('Share your current location with ' + who + '?\n\nOnly your location right now is sent, once.')) return;
+
+  const url = chatEndpoint('location');
+  if (!url) return;
+  setChatBusy('Getting your location... 📍');
+  try {
+    const pos = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }));
+    const res = await fetch(url, {
+      method: 'POST', headers: chatAuth(true),
+      body: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude })
+    });
+    if (handleAuthFailure(res.status)) return;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Could not share location');
+    await refreshAfterSend();
+  } catch (err) {
+    showMessage('❌ ' + (err && err.code === 1 ? 'Location permission was denied' : (err && err.message) || 'Could not get your location'));
+  } finally {
+    setChatBusy(false);
+  }
+}
+
+function openMediaViewer(url, kind) {
+  const box = document.getElementById('media-viewer-body');
+  box.textContent = '';
+  if (kind === 'image') {
+    const img = document.createElement('img');
+    img.src = url;
+    img.style.cssText = 'max-width:100%; max-height:100%; object-fit:contain;';
+    box.appendChild(img);
+  }
+  document.getElementById('media-viewer').style.display = 'flex';
+}
+function closeMediaViewer() { document.getElementById('media-viewer').style.display = 'none'; }
+
+// ---------- groups: create, info, add people, leave ----------
+
+// friends = people I matched with + people I've chatted with
+async function loadFriendCandidates() {
+  const get = async (path) => {
+    try {
+      const res = await fetch(API_URL + path, { headers: chatAuth(false) });
+      const data = await res.json();
+      return res.ok && Array.isArray(data) ? data : [];
+    } catch (e) { return []; }
+  };
+  const [matches, convs] = await Promise.all([get('/match/matches'), get('/messages')]);
+  const map = new Map();
+  matches.forEach(u => map.set(String(u._id), { id: String(u._id), name: u.name, pic: u.profilePicture }));
+  convs.forEach(c => { if (!map.has(String(c.userId))) map.set(String(c.userId), { id: String(c.userId), name: c.name, pic: c.profilePicture }); });
+  return [...map.values()];
+}
+
+function renderFriendPicker(container, people) {
+  container.textContent = '';
+  if (!people.length) {
+    container.innerHTML = '<p style="color:#888;">No friends to add yet. Match or chat with someone first 💕</p>';
+    return;
+  }
+  people.forEach(p => {
+    const row = document.createElement('label');
+    row.className = 'friend-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = p.id;
+    cb.style.cssText = 'width:20px; height:20px; margin:0; flex:none;';
+    row.appendChild(cb);
+    if (p.pic) { const img = document.createElement('img'); img.src = p.pic; row.appendChild(img); }
+    const nm = document.createElement('span'); nm.textContent = p.name;
+    row.appendChild(nm);
+    container.appendChild(row);
+  });
+}
+
+function checkedIds(container) {
+  return [...container.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+}
+
+async function openCreateGroup() {
+  hideAllScreens();
+  document.getElementById('group-create-screen').style.display = 'block';
+  document.getElementById('group-name-input').value = '';
+  const list = document.getElementById('group-friends');
+  list.innerHTML = '<p style="color:#888;">Loading your friends...</p>';
+  renderFriendPicker(list, await loadFriendCandidates());
+}
+
+async function createGroup() {
+  const name = document.getElementById('group-name-input').value.trim();
+  const members = checkedIds(document.getElementById('group-friends'));
+  if (!name) { showMessage('❌ Give the group a name'); return; }
+  if (!members.length) { showMessage('❌ Pick at least one friend'); return; }
+  try {
+    const res = await fetch(API_URL + '/chat/groups', { method: 'POST', headers: chatAuth(true), body: JSON.stringify({ name, members }) });
+    if (handleAuthFailure(res.status)) return;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Could not create the group');
+    openGroupChat(data._id, data.name);
+  } catch (err) {
+    showMessage('❌ ' + err.message);
+  }
+}
+
+async function openGroupInfo() {
+  if (!currentGroupId) return;
+  const panel = document.getElementById('group-info');
+  const body = document.getElementById('group-info-body');
+  panel.style.display = 'flex';
+  body.textContent = 'Loading...';
+  try {
+    const res = await fetch(API_URL + '/chat/groups/' + currentGroupId, { headers: chatAuth(false) });
+    if (handleAuthFailure(res.status)) return;
+    const g = await res.json();
+    if (!res.ok) throw new Error(g.message || 'Could not load the group');
+
+    body.textContent = '';
+    const h = document.createElement('h3'); h.textContent = g.name; h.style.margin = '0 0 4px';
+    const sub = document.createElement('p'); sub.textContent = g.members.length + ' people'; sub.style.cssText = 'margin:0 0 10px; color:#777;';
+    body.append(h, sub);
+    g.members.forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'friend-row';
+      if (m.profilePicture) { const img = document.createElement('img'); img.src = m.profilePicture; row.appendChild(img); }
+      const nm = document.createElement('span');
+      nm.textContent = m.name + (String(m._id) === String(g.admin) ? '  👑' : '') + (String(m._id) === String(currentUser.id) ? '  (you)' : '');
+      row.appendChild(nm);
+      body.appendChild(row);
+    });
+
+    const add = document.createElement('button');
+    add.textContent = '➕ Add people';
+    add.onclick = async () => {
+      const have = new Set(g.members.map(m => String(m._id)));
+      const picker = document.createElement('div');
+      picker.style.cssText = 'text-align:left; max-height:200px; overflow-y:auto; margin-top:8px;';
+      body.appendChild(picker);
+      add.style.display = 'none';
+      const people = (await loadFriendCandidates()).filter(p => !have.has(p.id));
+      renderFriendPicker(picker, people);
+      if (people.length) {
+        const ok = document.createElement('button');
+        ok.textContent = 'Add selected';
+        ok.onclick = async () => {
+          const ids = checkedIds(picker);
+          if (!ids.length) { showMessage('❌ Pick at least one person'); return; }
+          try {
+            const r = await fetch(API_URL + '/chat/groups/' + currentGroupId + '/members', { method: 'POST', headers: chatAuth(true), body: JSON.stringify({ members: ids }) });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.message || 'Could not add people');
+            showMessage('✅ Added!', 'success');
+            openGroupInfo();
+          } catch (err) { showMessage('❌ ' + err.message); }
+        };
+        body.appendChild(ok);
+      }
+    };
+    const leave = document.createElement('button');
+    leave.textContent = '🚪 Leave group';
+    leave.style.background = '#d32f2f';
+    leave.onclick = async () => {
+      if (!confirm('Leave this group?')) return;
+      try {
+        const r = await fetch(API_URL + '/chat/groups/' + currentGroupId + '/leave', { method: 'DELETE', headers: chatAuth(false) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.message || 'Could not leave the group');
+        closeGroupInfo();
+        closeChat();
+      } catch (err) { showMessage('❌ ' + err.message); }
+    };
+    body.append(add, leave);
+  } catch (err) {
+    body.textContent = '';
+    const p = document.createElement('p'); p.textContent = '❌ ' + err.message; body.appendChild(p);
+  }
+}
+function closeGroupInfo() {
+  const panel = document.getElementById('group-info');
+  if (panel) panel.style.display = 'none';
 }
 
 // ==================== MAP ====================
