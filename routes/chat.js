@@ -22,12 +22,14 @@ function readLocation(body) {
 }
 
 // Cloudinary result -> what we store on the message
-function attachmentFrom(file) {
+function attachmentFrom(file, body) {
+  const secs = Math.round(Number(body && body.duration));
   return {
     url: file.path,
     name: fixName(file.originalname).slice(0, 120),
     size: file.size || 0,
-    mime: file.mimetype
+    mime: (file.mimetype || "").split(";")[0],
+    duration: Number.isFinite(secs) ? Math.min(600, Math.max(0, secs)) : 0    // voice message length in seconds
   };
 }
 
@@ -60,6 +62,8 @@ function previewOf(msg) {
   if (msg.deletedForEveryone) return "🚫 This message was deleted";
   if (msg.kind === "image") return "📷 Photo";
   if (msg.kind === "video") return "🎥 Video";
+  if (msg.kind === "audio") return "🎤 Voice message";
+  if (msg.kind === "call") return msg.text || "📞 Call";
   if (msg.kind === "document") return "📄 " + ((msg.attachment && msg.attachment.name) || "Document");
   if (msg.kind === "location") return "📍 Location";
   return msg.text || "";
@@ -84,7 +88,7 @@ router.post("/direct/:userId/attachment", handleUpload, async (req, res) => {
       receiver: req.params.userId,
       kind: kindOfFile(req.file),
       text: cleanCaption(req.body.text),
-      attachment: attachmentFrom(req.file)
+      attachment: attachmentFrom(req.file, req.body)
     });
     await message.save();
     await message.populate("sender", "name profilePicture");
@@ -233,7 +237,7 @@ router.post("/groups/:id/messages", async (req, res) => {
 router.post("/groups/:id/attachment", handleUpload, async (req, res) => {
   try {
     await saveGroupMessage(req, res, {
-      kind: kindOfFile(req.file), text: cleanCaption(req.body.text), attachment: attachmentFrom(req.file)
+      kind: kindOfFile(req.file), text: cleanCaption(req.body.text), attachment: attachmentFrom(req.file, req.body)
     });
   } catch (err) {
     console.error("Group attachment error:", err);

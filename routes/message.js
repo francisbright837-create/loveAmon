@@ -9,6 +9,7 @@ function previewOf(msg) {
   if (msg.deletedForEveryone) return "🚫 This message was deleted";
   if (msg.kind === "image") return "📷 Photo";
   if (msg.kind === "video") return "🎥 Video";
+  if (msg.kind === "audio") return "🎤 Voice message";
   if (msg.kind === "document") return "📄 " + ((msg.attachment && msg.attachment.name) || "Document");
   if (msg.kind === "location") return "📍 Location";
   return msg.text;

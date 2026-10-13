@@ -4,9 +4,9 @@ const groupMessageSchema = new mongoose.Schema({
   group:  { type: mongoose.Schema.Types.ObjectId, ref: "Group", required: true },
   sender: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   text:   { type: String, default: "" },
-  kind:   { type: String, enum: ["text", "image", "video", "document", "location"], default: "text" },
+  kind:   { type: String, enum: ["text", "image", "video", "audio", "document", "location"], default: "text" },
   attachment: {
-    url: String, name: String, size: Number, mime: String
+    url: String, name: String, size: Number, mime: String, duration: Number
   },
   location: { lat: Number, lng: Number },
   deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],

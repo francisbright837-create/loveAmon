@@ -257,6 +257,27 @@
     .hero-card span { font-size: 12px; opacity: 0.85; line-height: 1.25; }
     .hero-card:active { transform: scale(0.97); }
     .dim-act:active { transform: scale(0.92); }
+    /* voice messages + calls */
+    .chat-icon-btn { width: auto; max-width: none; margin: 0; padding: 8px 12px; font-size: 18px; }
+    .chat-audio { display: flex; flex-direction: column; gap: 4px; min-width: 230px; }
+    .chat-audio audio { width: 230px; max-width: 100%; height: 40px; }
+    .chat-audio small { font-size: 12px; opacity: 0.85; text-align: left; }
+    .rec-dot { color: #e60023; animation: recblink 1s infinite; }
+    @keyframes recblink { 50% { opacity: 0.2; } }
+    .call-btn {
+      width: 74px; height: 74px; max-width: none; margin: 0; padding: 0; border-radius: 50%; border: none;
+      background: rgba(255,255,255,0.18); color: white; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    }
+    .call-btn span { font-size: 26px; line-height: 1; }
+    .call-btn small { font-size: 11px; }
+    .call-btn.green { background: #1fbf5b; }
+    .call-btn.red { background: #e5233b; }
+    .call-btn.off { background: rgba(255,255,255,0.45); color: #333; }
+    #call-screen.video-live #call-info { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); left: 14px; align-items: flex-start; padding: 0; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+    #call-screen.video-live #call-avatar { display: none; }
+    #call-screen.video-live #call-name { font-size: 18px; margin: 0; }
+    #call-screen.video-live #call-status { font-size: 14px; }
     /* chat: photos, videos, documents, location, groups */
     .chat-media { display: block; max-width: 100%; width: 240px; border-radius: 10px; cursor: pointer; background: #000; }
     .chat-bubble-media { padding: 5px !important; }
@@ -620,7 +641,11 @@
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
         <button onclick="closeChat()" style="padding:8px 16px;">← Back</button>
         <h3 id="chat-title">Chat</h3>
-        <button id="group-info-btn" onclick="openGroupInfo()" style="display:none; width:auto; padding:8px 14px;" aria-label="Group info">ℹ️</button>
+        <div style="display:flex; gap:6px;">
+          <button id="call-voice-btn" class="chat-icon-btn" onclick="startCall('audio')" aria-label="Voice call" style="display:none;">📞</button>
+          <button id="call-video-btn" class="chat-icon-btn" onclick="startCall('video')" aria-label="Video call" style="display:none;">🎥</button>
+          <button id="group-info-btn" class="chat-icon-btn" onclick="openGroupInfo()" aria-label="Group info" style="display:none;">ℹ️</button>
+        </div>
       </div>
 
       <div id="chat-messages" style="height:400px; overflow-y:auto; border:1px solid #ddd; border-radius:10px; padding:15px; background:#fafafa; margin-bottom:15px;">
@@ -629,7 +654,7 @@
 
       <div id="chat-status" style="display:none; text-align:center; color:#888; font-size:13px; margin-bottom:6px;"></div>
 
-      <div style="position:relative; display:flex; gap:8px; align-items:center;">
+      <div id="chat-input-row" style="position:relative; display:flex; gap:8px; align-items:center;">
         <div id="attach-menu" style="display:none; position:absolute; bottom:58px; left:0; background:white; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.25); overflow:hidden; z-index:30; min-width:200px;">
           <button class="attach-opt" onclick="pickChatFile('media')">📷 Photo or video</button>
           <button class="attach-opt" onclick="pickChatFile('doc')">📄 Document</button>
@@ -637,7 +662,14 @@
         </div>
         <button onclick="toggleAttachMenu(event)" aria-label="Attach" style="width:44px; height:44px; min-width:44px; border-radius:50%; background:white; color:#ff4d8d; border:1px solid #ddd; cursor:pointer; padding:0; margin:0; font-size:22px;">📎</button>
         <input type="text" id="message-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter') sendMessage()" style="flex:1; padding:12px 16px; border-radius:25px; border:1px solid #ddd; margin:0; min-width:0;">
+        <button onclick="startVoiceRecording()" aria-label="Record a voice message" style="width:44px; height:44px; min-width:44px; border-radius:50%; background:white; color:#ff4d8d; border:1px solid #ddd; cursor:pointer; padding:0; margin:0; font-size:20px;">🎤</button>
         <button onclick="sendMessage()" style="width:48px; height:48px; min-width:48px; border-radius:50%; background:#25D366; color:white; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; margin:0; font-size:20px;">➤</button>
+      </div>
+      <div id="voice-bar" style="display:none; align-items:center; gap:10px; background:white; border:1px solid #ddd; border-radius:25px; padding:6px 10px;">
+        <button onclick="stopVoiceRecording(false)" aria-label="Cancel recording" style="width:40px; height:40px; min-width:40px; border-radius:50%; margin:0; padding:0; background:#eee; color:#333; font-size:18px;">🗑</button>
+        <span class="rec-dot">●</span><span id="voice-timer" style="font-weight:600;">0:00</span>
+        <span style="flex:1; color:#888; text-align:left;">Recording...</span>
+        <button onclick="stopVoiceRecording(true)" aria-label="Send voice message" style="width:44px; height:44px; min-width:44px; border-radius:50%; margin:0; padding:0; background:#25D366; color:white; font-size:20px;">➤</button>
       </div>
       <input type="file" id="chat-file-media" accept="image/*,video/*" style="display:none;" onchange="onChatFilePicked(this)">
       <input type="file" id="chat-file-doc" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" style="display:none;" onchange="onChatFilePicked(this)">
@@ -654,6 +686,26 @@
       <p style="text-align:left; margin:10px 0 6px; font-weight:600;">Add friends:</p>
       <div id="group-friends" style="text-align:left; max-height:360px; overflow-y:auto;"></div>
       <button onclick="createGroup()">Create group</button>
+    </div>
+
+    <!-- Call screen (voice and video calls) -->
+    <div id="call-screen" style="display:none; position:fixed; inset:0; z-index:9800; background:linear-gradient(160deg,#2a1240,#0d0618); color:white; flex-direction:column; align-items:center; justify-content:center; text-align:center;">
+      <video id="call-remote" autoplay playsinline style="display:none; position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000;"></video>
+      <audio id="call-remote-audio" autoplay></audio>
+      <video id="call-local" autoplay playsinline muted style="display:none; position:absolute; top:calc(12px + env(safe-area-inset-top, 0px)); right:12px; width:110px; height:150px; object-fit:cover; border-radius:12px; border:2px solid rgba(255,255,255,0.7); background:#222; z-index:3; transform:scaleX(-1);"></video>
+
+      <div id="call-info" style="position:relative; z-index:2; display:flex; flex-direction:column; align-items:center; gap:10px; padding:20px;">
+        <div id="call-avatar" style="width:130px; height:130px; border-radius:50%; background:#ff4d8d center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-size:56px; font-weight:700; box-shadow:0 0 0 8px rgba(255,255,255,0.12);"></div>
+        <h2 id="call-name" style="margin:6px 0 0;"></h2>
+        <div id="call-status" style="font-size:17px; opacity:0.85;"></div>
+      </div>
+
+      <div style="position:absolute; left:0; right:0; bottom:calc(36px + env(safe-area-inset-bottom, 0px)); display:flex; justify-content:center; gap:22px; z-index:4;">
+        <button id="call-btn-accept" class="call-btn green" onclick="acceptCall()" aria-label="Answer"><span>📞</span><small>Answer</small></button>
+        <button id="call-btn-mute" class="call-btn" onclick="toggleCallMute()" aria-label="Mute"><span>🎤</span><small id="call-mute-label">Mute</small></button>
+        <button id="call-btn-cam" class="call-btn" onclick="toggleCallCamera()" aria-label="Camera"><span>📷</span><small id="call-cam-label">Camera off</small></button>
+        <button id="call-btn-end" class="call-btn red" onclick="hangUp()" aria-label="End call"><span>✖</span><small id="call-end-label">End</small></button>
+      </div>
     </div>
 
     <!-- Photo viewer -->

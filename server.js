@@ -105,6 +105,7 @@ const adminRoutes = require("./routes/admin");
 const videoRoutes = require("./routes/video");
 const followRoutes = require("./routes/follow");
 const chatRoutes = require("./routes/chat");
+const callRoutes = require("./routes/calls");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", authMiddleware, profileRoutes);
@@ -114,6 +115,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/videos", authMiddleware, videoRoutes);
 app.use("/api/follow", authMiddleware, followRoutes);
 app.use("/api/chat", authMiddleware, chatRoutes);
+app.use("/api/calls", authMiddleware, callRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({
@@ -216,6 +218,9 @@ io.use((socket, next) => {
     next(new Error("Invalid token"));
   }
 });
+
+// voice and video call signalling
+require("./sockets/calls")(io);
 
 io.on("connection", (socket) => {
   socket.on("world:join", async ({ name, profilePicture } = {}) => {

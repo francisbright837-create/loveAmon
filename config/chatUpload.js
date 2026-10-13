@@ -8,13 +8,16 @@ const MAX_BYTES = 50 * 1024 * 1024; // 50 MB (the app also checks 10 MB for phot
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm", "video/3gpp"];
+const AUDIO_TYPES = ["audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav", "audio/x-wav", "audio/aac", "audio/x-m4a", "audio/m4a"];
 const DOC_EXTS = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv"];
 
-// "image" | "video" | "document" | null (not allowed)
+// "image" | "video" | "audio" | "document" | null (not allowed)
 function kindOfFile(file) {
-  const mime = (file.mimetype || "").toLowerCase();
+  // recordings arrive as e.g. "audio/webm;codecs=opus" - only the part before ";" matters
+  const mime = (file.mimetype || "").toLowerCase().split(";")[0].trim();
   if (IMAGE_TYPES.includes(mime)) return "image";
   if (VIDEO_TYPES.includes(mime)) return "video";
+  if (AUDIO_TYPES.includes(mime)) return "audio";
   const ext = path.extname(file.originalname || "").toLowerCase();
   const docMime = mime.startsWith("application/") || mime.startsWith("text/");
   if (DOC_EXTS.includes(ext) && docMime) return "document";
@@ -36,7 +39,7 @@ const storage = new CloudinaryStorage({
     const kind = kindOfFile(file);
     const base = { folder: "loveconnect/chat" };
     if (kind === "image") return { ...base, resource_type: "image" };
-    if (kind === "video") return { ...base, resource_type: "video" };
+    if (kind === "video" || kind === "audio") return { ...base, resource_type: "video" };   // Cloudinary stores audio as "video"
     // documents are stored as-is; the file name keeps its extension so links open correctly
     return { ...base, resource_type: "raw", public_id: Date.now() + "-" + safeName(file.originalname) };
   }
@@ -47,7 +50,7 @@ const uploadChatFile = multer({
   limits: { fileSize: MAX_BYTES, files: 1 },
   fileFilter: (req, file, cb) => {
     if (kindOfFile(file)) return cb(null, true);
-    cb(new Error("This file type is not allowed. Send a photo, video, PDF, Word, Excel, PowerPoint, text or CSV file."));
+    cb(new Error("This file type is not allowed. Send a photo, video, voice message, PDF, Word, Excel, PowerPoint, text or CSV file."));
   }
 });
 

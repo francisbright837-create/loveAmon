@@ -1168,6 +1168,9 @@ function prepareChatScreen(title, isGroup) {
   document.getElementById('chat-screen').style.display = 'block';
   document.getElementById('chat-title').textContent = title;
   document.getElementById('group-info-btn').style.display = isGroup ? 'inline-block' : 'none';
+  document.getElementById('call-voice-btn').style.display = isGroup ? 'none' : 'inline-block';
+  document.getElementById('call-video-btn').style.display = isGroup ? 'none' : 'inline-block';
+  stopVoiceRecording(false);
   document.getElementById('attach-menu').style.display = 'none';
   setChatBusy(false);
   chatLastSig = '';
@@ -1177,6 +1180,7 @@ function prepareChatScreen(title, isGroup) {
 async function openChat(userId, userName) {
   currentGroupId = null;
   currentChatUserId = userId;
+  currentChatUserName = userName;
   prepareChatScreen('Chat with ' + userName, false);
   await loadMessages(userId);
   checkUnreadMessages();
@@ -1192,6 +1196,7 @@ async function openGroupChat(groupId, name) {
 }
 
 function closeChat() {
+  stopVoiceRecording(false);
   stopChatPolling();
   closeGroupInfo();
   document.getElementById('chat-screen').style.display = 'none';
@@ -1307,6 +1312,19 @@ function renderMessageBody(bubble, msg) {
     const vid = document.createElement('video');
     vid.src = url; vid.controls = true; vid.playsInline = true; vid.preload = 'metadata'; vid.className = 'chat-media';
     bubble.appendChild(vid);
+  } else if (kind === 'audio' && url) {
+    const box = document.createElement('div');
+    box.className = 'chat-audio';
+    const audio = document.createElement('audio');
+    audio.controls = true; audio.preload = 'metadata';
+    const mp3 = chatAudioUrl(url);
+    if (mp3 !== url) { const a = document.createElement('source'); a.src = mp3; a.type = 'audio/mpeg'; audio.appendChild(a); }
+    const b = document.createElement('source'); b.src = url; audio.appendChild(b);
+    const label = document.createElement('small');
+    const secs = msg.attachment && msg.attachment.duration;
+    label.textContent = '🎤 Voice message' + (secs ? ' · ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0') : '');
+    box.append(audio, label);
+    bubble.appendChild(box);
   } else if (kind === 'document' && url) {
     const a = document.createElement('a');
     a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.className = 'chat-doc';
@@ -1358,6 +1376,16 @@ function renderMessages(messages, keepScroll) {
 
   const inGroup = !!currentGroupId;
   messages.forEach(msg => {
+    if (msg.kind === 'call') {                       // "Missed voice call", "Video call · 2:31" ...
+      const row = document.createElement('div');
+      row.style.cssText = 'text-align:center; margin:10px 0;';
+      const pill = document.createElement('span');
+      pill.style.cssText = 'display:inline-block; background:#eee; color:#555; padding:5px 14px; border-radius:14px; font-size:12px;';
+      pill.textContent = msg.text + '  ·  ' + formatMessageTime(msg.createdAt);
+      row.appendChild(pill);
+      container.appendChild(row);
+      return;
+    }
     const senderId = String((msg.sender && msg.sender._id) || msg.sender);
     const isMine = senderId === String(currentUser.id);
 
@@ -1506,16 +1534,17 @@ async function onChatFilePicked(input) {
   await uploadChatFile(file);
 }
 
-async function uploadChatFile(file) {
+async function uploadChatFile(file, opts) {
   const url = chatEndpoint('attachment');
   if (!url) return;
   const input = document.getElementById('message-input');
-  const caption = input.value.trim();
-  setChatBusy('Sending ' + file.name + '... ⏳');
+  const caption = opts && opts.noCaption ? '' : input.value.trim();
+  setChatBusy(opts && opts.duration ? 'Sending voice message... ⏳' : 'Sending ' + file.name + '... ⏳');
   try {
     const fd = new FormData();
     fd.append('file', file);
     if (caption) fd.append('text', caption);
+    if (opts && opts.duration) fd.append('duration', String(opts.duration));
     const res = await fetch(url, { method: 'POST', headers: chatAuth(false), body: fd });
     if (handleAuthFailure(res.status)) return;
     const data = await res.json().catch(() => ({}));
@@ -3462,6 +3491,414 @@ function drawDimHero(ctx, d, t) {
   }
 }
 
+// ==================== VOICE MESSAGES, VOICE & VIDEO CALLS ====================
+
+let currentChatUserName = '';
+
+// ---------- voice messages ----------
+
+let voice = null;   // the recording in progress
+const VOICE_MAX_SEC = 300;
+
+async function startVoiceRecording() {
+  if (voice) return;
+  if (!window.MediaRecorder || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showMessage('❌ This browser cannot record audio');
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    showMessage('❌ Please allow the microphone to record a voice message');
+    return;
+  }
+  const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+  const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+  voice = { rec, stream, chunks: [], start: Date.now(), cancelled: false, mime: rec.mimeType || mime || 'audio/webm', timer: null };
+  rec.ondataavailable = e => { if (e.data && e.data.size) voice.chunks.push(e.data); };
+  rec.onstop = onVoiceStopped;
+  rec.start();
+
+  document.getElementById('chat-input-row').style.display = 'none';
+  document.getElementById('voice-bar').style.display = 'flex';
+  document.getElementById('voice-timer').textContent = '0:00';
+  voice.timer = setInterval(() => {
+    const s = Math.floor((Date.now() - voice.start) / 1000);
+    document.getElementById('voice-timer').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    if (s >= VOICE_MAX_SEC) stopVoiceRecording(true);
+  }, 250);
+}
+
+function stopVoiceRecording(send) {
+  if (!voice) return;
+  voice.cancelled = !send;
+  clearInterval(voice.timer);
+  try { voice.rec.stop(); } catch (e) { onVoiceStopped(); }
+}
+
+async function onVoiceStopped() {
+  const v = voice;
+  if (!v) return;
+  voice = null;
+  v.stream.getTracks().forEach(t => t.stop());
+  document.getElementById('voice-bar').style.display = 'none';
+  document.getElementById('chat-input-row').style.display = 'flex';
+  if (v.cancelled) return;
+
+  const secs = Math.round((Date.now() - v.start) / 1000);
+  if (secs < 1) { showMessage('Hold on a little longer to record 🎤'); return; }
+  const type = (v.mime || 'audio/webm').split(';')[0];
+  const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+  const file = new File([new Blob(v.chunks, { type })], 'voice-' + Date.now() + '.' + ext, { type });
+  await uploadChatFile(file, { duration: secs, noCaption: true });
+}
+
+// ---------- calls ----------
+
+let callSocket = null;
+let call = null;          // the call in progress (or ringing)
+let callTimerId = null, ringCtx = null, ringTimerId = null, iceCache = null;
+
+const CALL_REASONS = {
+  'offline': 'is offline right now. They will see a missed call.',
+  'busy': 'is on another call. Try again soon.',
+  'not-allowed': 'cannot be called yet. Send them a message first.',
+  'you-are-busy': 'You are already in a call.',
+  'slow-down': 'Please wait a moment and try again.',
+  'invalid': 'Could not start the call.',
+  'error': 'Could not start the call.'
+};
+
+function ensureCallSocket() {
+  if (callSocket || !token || typeof io !== 'function') return;
+  callSocket = io({ auth: { token } });
+  callSocket.on('call:incoming', onCallIncoming);
+  callSocket.on('call:accepted', onCallAccepted);
+  callSocket.on('call:signal', onCallSignal);
+  callSocket.on('call:rejected', ({ callId }) => { if (call && call.id === callId) { showMessage('📞 Call declined'); endCallLocal(); } });
+  callSocket.on('call:cancelled', ({ callId }) => { if (call && call.id === callId) { showMessage('📞 Missed call from ' + call.peerName); endCallLocal(); } });
+  callSocket.on('call:missed', ({ callId }) => {
+    if (call && call.id === callId) { showMessage(call.role === 'caller' ? '📞 No answer' : '📞 Missed call from ' + call.peerName); endCallLocal(); }
+  });
+  callSocket.on('call:taken', ({ callId }) => { if (call && call.id === callId && call.state === 'ringing') endCallLocal(); });
+  callSocket.on('call:ended', ({ callId }) => { if (call && call.id === callId) { showMessage('📞 Call ended'); endCallLocal(); } });
+}
+
+function disconnectCallSocket() {
+  endCallLocal();
+  if (callSocket) { callSocket.disconnect(); callSocket = null; }
+}
+
+async function getIceServers() {
+  if (iceCache && Date.now() - iceCache.at < 5 * 60 * 1000) return iceCache.servers;
+  let servers = [{ urls: ['stun:stun.l.google.com:19302'] }];
+  try {
+    const res = await fetch(API_URL + '/calls/ice', { headers: chatAuth(false) });
+    const data = await res.json();
+    if (res.ok && Array.isArray(data.iceServers) && data.iceServers.length) servers = data.iceServers;
+  } catch (e) { /* fall back to the public server */ }
+  iceCache = { at: Date.now(), servers };
+  return servers;
+}
+
+function getCallMedia(kind) {
+  return navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true },
+    video: kind === 'video' ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } : false
+  });
+}
+
+// the 📞 / 🎥 buttons in a chat
+async function startCall(kind) {
+  if (call || !currentChatUserId) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) {
+    showMessage('❌ This browser cannot make calls');
+    return;
+  }
+  ensureCallSocket();
+  if (!callSocket) { showMessage('❌ Calls are not available right now'); return; }
+
+  let stream;
+  try {
+    stream = await getCallMedia(kind);
+  } catch (err) {
+    showMessage('❌ Please allow the microphone' + (kind === 'video' ? ' and camera' : '') + ' to call');
+    return;
+  }
+  const c = {
+    id: null, role: 'caller', state: 'calling', kind, peerId: currentChatUserId, peerName: currentChatUserName || 'Friend',
+    peerPic: '', local: stream, remote: null, pc: null, pendingIce: [], queue: [], cancelled: false, startedAt: 0
+  };
+  call = c;
+  showCallScreen();
+  callSocket.emit('call:invite', { to: c.peerId, kind: kind === 'video' ? 'video' : 'audio' }, (ack) => {
+    if (!ack || !ack.ok) {
+      if (call === c) {
+        const why = ack && ack.reason;
+        showMessage('📞 ' + (why === 'offline' || why === 'busy' || why === 'not-allowed' ? c.peerName + ' ' : '') + (CALL_REASONS[why] || CALL_REASONS.error));
+        endCallLocal();
+      }
+      return;
+    }
+    c.id = ack.callId;
+    if (c.cancelled) { callSocket.emit('call:cancel', { callId: ack.callId }); return; }
+    if (call === c) startRing(true);
+  });
+}
+
+function onCallIncoming({ callId, kind, from }) {
+  if (call) return;
+  call = {
+    id: callId, role: 'callee', state: 'ringing', kind: kind === 'video' ? 'video' : 'audio',
+    peerId: from.id, peerName: from.name, peerPic: from.profilePicture || '', local: null, remote: null,
+    pc: null, pendingIce: [], queue: [], startedAt: 0
+  };
+  showCallScreen();
+  startRing(false);
+  sendBrowserNotification('Incoming call', from.name + ' is calling you 📞');
+}
+
+async function acceptCall() {
+  const c = call;
+  if (!c || c.role !== 'callee' || c.state !== 'ringing') return;
+  stopRing();
+  let stream;
+  try {
+    stream = await getCallMedia(c.kind);
+  } catch (err) {
+    showMessage('❌ Please allow the microphone' + (c.kind === 'video' ? ' and camera' : '') + ' to answer');
+    callSocket.emit('call:reject', { callId: c.id });
+    if (call === c) endCallLocal();
+    return;
+  }
+  if (call !== c) { stream.getTracks().forEach(t => t.stop()); return; }   // they hung up while we were deciding
+  c.local = stream;
+  c.state = 'connecting';
+  updateCallUI();
+  await createPeer();                                // ready before the offer arrives
+  if (call === c) callSocket.emit('call:accept', { callId: c.id });
+}
+
+async function onCallAccepted({ callId }) {
+  const c = call;
+  if (!c || c.id !== callId || c.role !== 'caller') return;
+  stopRing();
+  c.state = 'connecting';
+  updateCallUI();
+  try {
+    const pc = await createPeer();
+    if (!pc || call !== c) return;
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    sendCallSignal({ sdp: pc.localDescription });
+  } catch (err) {
+    console.error('Call offer error:', err);
+    showMessage('❌ Could not connect the call');
+    hangUp();
+  }
+}
+
+async function createPeer() {
+  const c = call;
+  const iceServers = await getIceServers();
+  if (call !== c) return null;
+  const pc = new RTCPeerConnection({ iceServers });
+  c.pc = pc;
+  c.local.getTracks().forEach(t => pc.addTrack(t, c.local));
+  pc.onicecandidate = e => { if (e.candidate) sendCallSignal({ candidate: e.candidate }); };
+  pc.ontrack = e => {
+    c.remote = (e.streams && e.streams[0]) || new MediaStream([e.track]);
+    attachCallRemote();
+  };
+  pc.onconnectionstatechange = () => {
+    if (call !== c) return;
+    if (pc.connectionState === 'connected') onCallConnected();
+    else if (pc.connectionState === 'failed') { showMessage('❌ The call lost its connection'); hangUp(); }
+    else if (pc.connectionState === 'disconnected') setCallStatus('Reconnecting...');
+  };
+  for (const d of c.queue.splice(0)) await processCallSignal(d);   // anything that arrived early
+  return pc;
+}
+
+function sendCallSignal(data) {
+  if (call && call.id && callSocket) callSocket.emit('call:signal', { callId: call.id, data });
+}
+
+function onCallSignal({ callId, data }) {
+  if (!call || call.id !== callId || !data) return;
+  if (!call.pc) { call.queue.push(data); return; }
+  processCallSignal(data);
+}
+
+async function processCallSignal(data) {
+  const c = call;
+  if (!c || !c.pc) return;
+  const pc = c.pc;
+  try {
+    if (data.sdp) {
+      await pc.setRemoteDescription(data.sdp);
+      for (const cand of c.pendingIce.splice(0)) await pc.addIceCandidate(cand).catch(() => {});
+      if (data.sdp.type === 'offer') {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendCallSignal({ sdp: pc.localDescription });
+      }
+    } else if (data.candidate) {
+      if (pc.remoteDescription) await pc.addIceCandidate(data.candidate).catch(() => {});
+      else c.pendingIce.push(data.candidate);
+    }
+  } catch (err) {
+    console.error('Call signal error:', err);
+  }
+}
+
+function onCallConnected() {
+  if (!call || call.state === 'active') return;
+  call.state = 'active';
+  call.startedAt = Date.now();
+  stopRing();
+  updateCallUI();
+  setCallStatus('0:00');
+  clearInterval(callTimerId);
+  callTimerId = setInterval(() => {
+    if (!call || !call.startedAt) return;
+    const s = Math.floor((Date.now() - call.startedAt) / 1000);
+    setCallStatus(Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'));
+  }, 500);
+}
+
+function hangUp() {
+  const c = call;
+  if (!c) return;
+  if (callSocket) {
+    if (c.role === 'callee' && c.state === 'ringing') callSocket.emit('call:reject', { callId: c.id });
+    else if (c.id) callSocket.emit(c.state === 'calling' ? 'call:cancel' : 'call:end', { callId: c.id });
+    else c.cancelled = true;               // the server hasn't confirmed the call yet; cancel as soon as it does
+  }
+  endCallLocal();
+}
+
+function endCallLocal() {
+  stopRing();
+  clearInterval(callTimerId);
+  callTimerId = null;
+  const c = call;
+  call = null;
+  if (c) {
+    try { if (c.pc) c.pc.close(); } catch (e) {}
+    if (c.local) c.local.getTracks().forEach(t => t.stop());
+  }
+  const screen = document.getElementById('call-screen');
+  if (screen) {
+    screen.style.display = 'none';
+    ['call-remote', 'call-remote-audio', 'call-local'].forEach(id => { const el = document.getElementById(id); if (el) el.srcObject = null; });
+  }
+}
+
+function toggleCallMute() {
+  if (!call || !call.local) return;
+  const tracks = call.local.getAudioTracks();
+  const on = tracks.length ? !tracks[0].enabled : false;     // new state: enabled?
+  tracks.forEach(t => { t.enabled = on; });
+  document.getElementById('call-btn-mute').classList.toggle('off', !on);
+  document.getElementById('call-mute-label').textContent = on ? 'Mute' : 'Unmute';
+}
+
+function toggleCallCamera() {
+  if (!call || !call.local) return;
+  const tracks = call.local.getVideoTracks();
+  const on = tracks.length ? !tracks[0].enabled : false;
+  tracks.forEach(t => { t.enabled = on; });
+  document.getElementById('call-btn-cam').classList.toggle('off', !on);
+  document.getElementById('call-cam-label').textContent = on ? 'Camera off' : 'Camera on';
+}
+
+// ---------- call screen ----------
+
+function showCallScreen() {
+  document.getElementById('call-screen').style.display = 'flex';
+  document.getElementById('call-btn-mute').classList.remove('off');
+  document.getElementById('call-btn-cam').classList.remove('off');
+  document.getElementById('call-mute-label').textContent = 'Mute';
+  document.getElementById('call-cam-label').textContent = 'Camera off';
+  updateCallUI();
+  const local = document.getElementById('call-local');
+  if (call && call.local && call.kind === 'video') { local.srcObject = call.local; local.play().catch(() => {}); }
+}
+
+function setCallStatus(text) {
+  const el = document.getElementById('call-status');
+  if (el) el.textContent = text;
+}
+
+function updateCallUI() {
+  const c = call;
+  if (!c) return;
+  const screen = document.getElementById('call-screen');
+  const video = c.kind === 'video';
+  const live = c.state === 'connecting' || c.state === 'active';
+
+  document.getElementById('call-name').textContent = c.peerName;
+  const av = document.getElementById('call-avatar');
+  const pic = chatSafeUrl(c.peerPic);
+  av.style.backgroundImage = pic ? 'url("' + pic + '")' : 'none';
+  av.textContent = pic ? '' : (c.peerName || '?').trim().charAt(0).toUpperCase();
+
+  if (c.state === 'ringing') setCallStatus(video ? 'Incoming video call...' : 'Incoming voice call...');
+  else if (c.state === 'calling') setCallStatus('Calling...');
+  else if (c.state === 'connecting') setCallStatus('Connecting...');
+
+  document.getElementById('call-btn-accept').style.display = c.role === 'callee' && c.state === 'ringing' ? 'flex' : 'none';
+  document.getElementById('call-btn-mute').style.display = live ? 'flex' : 'none';
+  document.getElementById('call-btn-cam').style.display = live && video ? 'flex' : 'none';
+  document.getElementById('call-end-label').textContent = c.role === 'callee' && c.state === 'ringing' ? 'Decline' : 'End';
+
+  document.getElementById('call-remote').style.display = video && live ? 'block' : 'none';
+  document.getElementById('call-local').style.display = video && c.local ? 'block' : 'none';
+  screen.classList.toggle('video-live', video && live);
+}
+
+function attachCallRemote() {
+  if (!call || !call.remote) return;
+  const el = document.getElementById(call.kind === 'video' ? 'call-remote' : 'call-remote-audio');
+  if (el.srcObject !== call.remote) el.srcObject = call.remote;
+  el.play().catch(() => {});
+}
+
+// a simple phone ring made with the browser's own sound (no sound file needed)
+function startRing(outgoing) {
+  stopRing();
+  const beep = () => {
+    try {
+      ringCtx = ringCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (ringCtx.state === 'suspended') ringCtx.resume();
+      [440, 480].forEach(f => {
+        const o = ringCtx.createOscillator(), g = ringCtx.createGain();
+        o.frequency.value = f; g.gain.value = outgoing ? 0.04 : 0.1;
+        o.connect(g); g.connect(ringCtx.destination);
+        o.start(); o.stop(ringCtx.currentTime + 0.9);
+      });
+    } catch (e) { /* no sound available */ }
+    if (!outgoing && navigator.vibrate) navigator.vibrate([400, 200, 400]);
+  };
+  beep();
+  ringTimerId = setInterval(beep, 2500);
+}
+
+function stopRing() {
+  if (ringTimerId) clearInterval(ringTimerId);
+  ringTimerId = null;
+  if (navigator.vibrate) navigator.vibrate(0);
+}
+
+// voice messages are stored by Cloudinary in the format the sender's phone recorded (webm or m4a);
+// asking for ".mp3" makes Cloudinary convert it so it plays on every phone
+function chatAudioUrl(url) {
+  return /\/video\/upload\//.test(url) ? url.replace(/\.[a-z0-9]+(\?.*)?$/i, '.mp3') : url;
+}
+
 // ==================== CAMERA (photos, videos, AI environments & characters) ====================
 // The "AI" part is on-device person segmentation (MediaPipe): it cuts you out of the camera
 // picture so a new place and a cartoon character can be put behind you. Nothing is sent to a server
@@ -3891,6 +4328,7 @@ function sendBrowserNotification(title, body) {
 
 function startNotifPolling() {
   requestNotificationPermission();
+  ensureCallSocket();                 // so incoming calls can reach this phone
   checkUnreadMessages();
   if (notifInterval) clearInterval(notifInterval);
   notifInterval = setInterval(checkUnreadMessages, 10000);
@@ -3939,6 +4377,7 @@ function logout() {
   currentUser = null;
 
   stopNotifPolling();
+  disconnectCallSocket();
 
   if (worldSocket) {
     worldSocket.disconnect();
