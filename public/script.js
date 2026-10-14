@@ -3561,6 +3561,9 @@ let callSocket = null;
 let call = null;          // the call in progress (or ringing)
 let callTimerId = null, ringCtx = null, ringTimerId = null, iceCache = null;
 
+const CALL_CONNECT_TIMEOUT_MS = 25000;   // give up if the two phones still can't connect after this long
+const CALL_BLOCKED_MSG = '❌ Could not connect the call. This network may be blocking calls. Try Wi-Fi, or ask for a relay server to be added.';
+
 const CALL_REASONS = {
   'offline': 'is offline right now. They will see a missed call.',
   'busy': 'is on another call. Try again soon.',
@@ -3707,6 +3710,12 @@ async function createPeer() {
   const pc = new RTCPeerConnection({ iceServers });
   c.pc = pc;
   c.local.getTracks().forEach(t => pc.addTrack(t, c.local));
+
+  // "Connecting..." must never hang forever: explain after 10 seconds, give up after 25
+  c.slowTimer = setTimeout(() => { if (call === c && c.state !== 'active') setCallStatus('Still connecting... this can take a moment'); }, 10000);
+  c.connectTimer = setTimeout(() => {
+    if (call === c && c.state !== 'active') { showMessage(CALL_BLOCKED_MSG); hangUp(); }
+  }, CALL_CONNECT_TIMEOUT_MS);
   pc.onicecandidate = e => { if (e.candidate) sendCallSignal({ candidate: e.candidate }); };
   pc.ontrack = e => {
     c.remote = (e.streams && e.streams[0]) || new MediaStream([e.track]);
@@ -3714,9 +3723,17 @@ async function createPeer() {
   };
   pc.onconnectionstatechange = () => {
     if (call !== c) return;
+    console.log('Call connection:', pc.connectionState);
     if (pc.connectionState === 'connected') onCallConnected();
-    else if (pc.connectionState === 'failed') { showMessage('❌ The call lost its connection'); hangUp(); }
+    else if (pc.connectionState === 'failed') { showMessage(c.state === 'active' ? '❌ The call lost its connection' : CALL_BLOCKED_MSG); hangUp(); }
     else if (pc.connectionState === 'disconnected') setCallStatus('Reconnecting...');
+  };
+  // some browsers only report this one
+  pc.oniceconnectionstatechange = () => {
+    if (call !== c) return;
+    console.log('Call network:', pc.iceConnectionState);
+    if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') onCallConnected();
+    else if (pc.iceConnectionState === 'failed') { showMessage(c.state === 'active' ? '❌ The call lost its connection' : CALL_BLOCKED_MSG); hangUp(); }
   };
   for (const d of c.queue.splice(0)) await processCallSignal(d);   // anything that arrived early
   return pc;
@@ -3758,6 +3775,8 @@ function onCallConnected() {
   if (!call || call.state === 'active') return;
   call.state = 'active';
   call.startedAt = Date.now();
+  clearTimeout(call.slowTimer);
+  clearTimeout(call.connectTimer);
   stopRing();
   updateCallUI();
   setCallStatus('0:00');
@@ -3787,6 +3806,8 @@ function endCallLocal() {
   const c = call;
   call = null;
   if (c) {
+    clearTimeout(c.slowTimer);
+    clearTimeout(c.connectTimer);
     try { if (c.pc) c.pc.close(); } catch (e) {}
     if (c.local) c.local.getTracks().forEach(t => t.stop());
   }
