@@ -3563,6 +3563,11 @@ let callTimerId = null, ringCtx = null, ringTimerId = null, iceCache = null;
 
 const CALL_CONNECT_TIMEOUT_MS = 25000;   // give up if the two phones still can't connect after this long
 const CALL_BLOCKED_MSG = '❌ Could not connect the call. This network may be blocking calls. Try Wi-Fi, or ask for a relay server to be added.';
+function callBlockedMessage(c) {
+  if (!c.hasRelay) return '❌ Could not connect the call. No relay server is set up yet, so calls only work when both phones can reach each other directly.';
+  if (!c.sawRelay) return '❌ Could not connect the call. A relay server is configured but could not be reached. Check its settings.';
+  return CALL_BLOCKED_MSG;
+}
 
 const CALL_REASONS = {
   'offline': 'is offline right now. They will see a missed call.',
@@ -3603,6 +3608,7 @@ async function getIceServers() {
     if (res.ok && Array.isArray(data.iceServers) && data.iceServers.length) servers = data.iceServers;
   } catch (e) { /* fall back to the public server */ }
   iceCache = { at: Date.now(), servers };
+  console.log('Call servers:', servers.map(sv => [].concat(sv.urls).join(', ')));
   return servers;
 }
 
@@ -3709,14 +3715,21 @@ async function createPeer() {
   if (call !== c) return null;
   const pc = new RTCPeerConnection({ iceServers });
   c.pc = pc;
+  c.hasRelay = iceServers.some(sv => [].concat(sv.urls).some(u => /^turns?:/i.test(u)));
+  c.sawRelay = false;
   c.local.getTracks().forEach(t => pc.addTrack(t, c.local));
 
   // "Connecting..." must never hang forever: explain after 10 seconds, give up after 25
   c.slowTimer = setTimeout(() => { if (call === c && c.state !== 'active') setCallStatus('Still connecting... this can take a moment'); }, 10000);
   c.connectTimer = setTimeout(() => {
-    if (call === c && c.state !== 'active') { showMessage(CALL_BLOCKED_MSG); hangUp(); }
+    if (call === c && c.state !== 'active') { showMessage(callBlockedMessage(c)); hangUp(); }
   }, CALL_CONNECT_TIMEOUT_MS);
-  pc.onicecandidate = e => { if (e.candidate) sendCallSignal({ candidate: e.candidate }); };
+  pc.onicecandidate = e => {
+    if (!e.candidate) return;
+    if (e.candidate.type === 'relay') c.sawRelay = true;
+    console.log('Call candidate:', e.candidate.type || 'unknown');   // host = this network, srflx = via Google, relay = via relay server
+    sendCallSignal({ candidate: e.candidate });
+  };
   pc.ontrack = e => {
     c.remote = (e.streams && e.streams[0]) || new MediaStream([e.track]);
     attachCallRemote();
@@ -3725,7 +3738,7 @@ async function createPeer() {
     if (call !== c) return;
     console.log('Call connection:', pc.connectionState);
     if (pc.connectionState === 'connected') onCallConnected();
-    else if (pc.connectionState === 'failed') { showMessage(c.state === 'active' ? '❌ The call lost its connection' : CALL_BLOCKED_MSG); hangUp(); }
+    else if (pc.connectionState === 'failed') { showMessage(c.state === 'active' ? '❌ The call lost its connection' : callBlockedMessage(c)); hangUp(); }
     else if (pc.connectionState === 'disconnected') setCallStatus('Reconnecting...');
   };
   // some browsers only report this one
@@ -3733,7 +3746,7 @@ async function createPeer() {
     if (call !== c) return;
     console.log('Call network:', pc.iceConnectionState);
     if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') onCallConnected();
-    else if (pc.iceConnectionState === 'failed') { showMessage(c.state === 'active' ? '❌ The call lost its connection' : CALL_BLOCKED_MSG); hangUp(); }
+    else if (pc.iceConnectionState === 'failed') { showMessage(c.state === 'active' ? '❌ The call lost its connection' : callBlockedMessage(c)); hangUp(); }
   };
   for (const d of c.queue.splice(0)) await processCallSignal(d);   // anything that arrived early
   return pc;
