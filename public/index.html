@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>LoveConnect</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
@@ -390,6 +390,66 @@
       text-align: center;
       padding-top: 100px;
     }
+
+    /* ===== Full-screen chat (phone + laptop) ===== */
+    #chat-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 9500;               /* above bottom nav (9000), below call screen (9800) */
+      width: auto !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffe4ef;
+      overflow: hidden;
+    }
+    #chat-screen .chat-shell {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100vh;               /* fallback */
+      height: 100dvh;              /* correct on mobile browsers */
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      box-sizing: border-box;
+    }
+    #chat-screen .chat-header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+    }
+    #chat-screen .chat-header .back-btn {
+      width: auto; flex: none; margin: 0; padding: 10px 14px;
+    }
+    #chat-screen .chat-header h3 {
+      flex: 1; min-width: 0; margin: 0; text-align: center;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #chat-screen .chat-header .chat-actions { display: flex; gap: 6px; flex: none; }
+    #chat-messages {
+      flex: 1 1 auto;
+      min-height: 0;               /* lets the flex child scroll */
+      overflow-y: auto;
+      overflow-x: hidden;          /* removes the sideways scrollbar */
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      box-sizing: border-box;
+      padding: 12px;
+      background: #fafafa;
+      border-top: 1px solid #e3e3e3;
+      border-bottom: 1px solid #e3e3e3;
+    }
+    #chat-messages * { max-width: 100%; }
+    #chat-messages img, #chat-messages video { height: auto; }
+    #chat-messages .chat-media { max-width: min(240px, 100%); }
+    #chat-status { flex: 0 0 auto; margin: 6px 12px 0; }
+    #chat-input-row { flex: 0 0 auto; padding: 8px 12px; box-sizing: border-box; }
+    #chat-input-row #message-input { font-size: 16px; }   /* stops iPhone zoom on focus */
+    #voice-bar { flex: 0 0 auto; margin: 8px 12px; }
+    @media (min-width: 1024px) {
+      #chat-messages { padding: 16px 12%; }
+    }
   </style>
 </head>
 <body>
@@ -637,25 +697,26 @@
     </div>
 
     <!-- Chat Screen -->
-    <div id="chat-screen" style="display:none; max-width:600px; margin:0 auto; padding:0 15px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-        <button onclick="closeChat()" style="padding:8px 16px;">← Back</button>
+    <div id="chat-screen" style="display:none;">
+     <div class="chat-shell">
+      <div class="chat-header">
+        <button class="back-btn" onclick="closeChat()">← Back</button>
         <h3 id="chat-title">Chat</h3>
-        <div style="display:flex; gap:6px;">
+        <div class="chat-actions">
           <button id="call-voice-btn" class="chat-icon-btn" onclick="startCall('audio')" aria-label="Voice call" style="display:none;">📞</button>
           <button id="call-video-btn" class="chat-icon-btn" onclick="startCall('video')" aria-label="Video call" style="display:none;">🎥</button>
           <button id="group-info-btn" class="chat-icon-btn" onclick="openGroupInfo()" aria-label="Group info" style="display:none;">ℹ️</button>
         </div>
       </div>
 
-      <div id="chat-messages" style="height:400px; overflow-y:auto; border:1px solid #ddd; border-radius:10px; padding:15px; background:#fafafa; margin-bottom:15px;">
+      <div id="chat-messages">
         <p style="text-align:center; color:#888;">Loading messages...</p>
       </div>
 
-      <div id="chat-status" style="display:none; text-align:center; color:#888; font-size:13px; margin-bottom:6px;"></div>
+      <div id="chat-status" style="display:none; text-align:center; color:#888; font-size:13px;"></div>
 
       <div id="chat-input-row" style="position:relative; display:flex; gap:8px; align-items:center;">
-        <div id="attach-menu" style="display:none; position:absolute; bottom:58px; left:0; background:white; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.25); overflow:hidden; z-index:30; min-width:200px;">
+        <div id="attach-menu" style="display:none; position:absolute; bottom:62px; left:12px; background:white; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.25); overflow:hidden; z-index:30; min-width:200px;">
           <button class="attach-opt" onclick="pickChatFile('media')">📷 Photo or video</button>
           <button class="attach-opt" onclick="pickChatFile('doc')">📄 Document</button>
           <button class="attach-opt" onclick="shareChatLocation()">📍 My location</button>
@@ -673,6 +734,7 @@
       </div>
       <input type="file" id="chat-file-media" accept="image/*,video/*" style="display:none;" onchange="onChatFilePicked(this)">
       <input type="file" id="chat-file-doc" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" style="display:none;" onchange="onChatFilePicked(this)">
+     </div>
     </div>
 
     <!-- New group screen -->
@@ -756,5 +818,20 @@
 </div>
 
 <script src="script.js"></script>
+<script>
+  // Fit the chat to the visible area when the phone keyboard opens
+  (function () {
+    if (!window.visualViewport) return;
+    function fit() {
+      var shell = document.querySelector('#chat-screen .chat-shell');
+      if (!shell) return;
+      shell.style.height = window.visualViewport.height + 'px';
+      var list = document.getElementById('chat-messages');
+      if (list) list.scrollTop = list.scrollHeight;
+      window.scrollTo(0, 0);
+    }
+    window.visualViewport.addEventListener('resize', fit);
+  })();
+</script>
 </body>
 </html>
