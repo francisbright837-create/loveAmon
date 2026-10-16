@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Demon Dimension</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#12081f;font-family:system-ui,sans-serif;color:#fff;touch-action:none;user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#hud{position:fixed;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top) + 8px) 12px 0;pointer-events:none;font-size:14px;text-shadow:0 1px 3px #000}
+.bar{height:10px;background:#0007;border-radius:6px;overflow:hidden;margin-top:4px;max-width:230px}
+.bar i{display:block;height:100%;width:0}
+#hp i{background:#e53935}#xp i{background:#ffd54f}#ch i{background:#4fc3f7}
+#hearts{font-size:20px}
+#msg{position:fixed;top:28%;left:0;right:0;text-align:center;font-size:20px;font-weight:700;opacity:0;transition:opacity .5s;pointer-events:none;text-shadow:0 2px 6px #000;padding:0 16px}
+#joy{position:fixed;left:calc(env(safe-area-inset-left) + 18px);bottom:calc(env(safe-area-inset-bottom) + 18px);width:120px;height:120px;border-radius:50%;background:#fff2;border:2px solid #fff5}
+#kn{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:#fff8}
+.b{position:fixed;border:0;border-radius:50%;background:#ff4f8bcc;color:#fff;font-size:28px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#bA{right:calc(env(safe-area-inset-right) + 18px);bottom:calc(env(safe-area-inset-bottom) + 30px);width:84px;height:84px}
+#bS{right:calc(env(safe-area-inset-right) + 112px);bottom:calc(env(safe-area-inset-bottom) + 18px);width:62px;height:62px;background:#29b6f6cc}
+#bI{right:12px;top:calc(env(safe-area-inset-top) + 8px);width:46px;height:46px;font-size:22px;background:#0008}
+#ov{position:fixed;inset:0;background:#0b0415ee;display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}
+#pn{max-width:520px;max-height:100%;overflow:auto;text-align:center;line-height:1.5}
+#pn h1{margin:0 0 8px;font-size:28px}#pn p{margin:8px 0;color:#e6d6ff}
+#pn button{font-size:18px;padding:12px 28px;border:0;border-radius:12px;background:#ff4f8b;color:#fff;margin:6px;cursor:pointer}
+.w{display:block;width:100%;text-align:left;background:#2a1744;font-size:16px!important;padding:10px 14px!important}
+.w.on{outline:2px solid #ffd54f}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="hud"><div id="hearts"></div><div class="bar" id="hp"><i></i></div><div class="bar" id="xp"><i></i></div><div class="bar" id="ch"><i></i></div><div id="st"></div></div>
+<div id="msg"></div>
+<div id="joy"><div id="kn"></div></div>
+<button class="b" id="bA">⚔️</button><button class="b" id="bS">🌀</button><button class="b" id="bI">🎒</button>
+<div id="ov"><div id="pn"></div></div>
+<script>
+const $=id=>document.getElementById(id),cv=$('c'),g=cv.getContext('2d');
+const W=1000,ZH=1300,Z=5,WH=ZH*Z;
+const ZN=[
+ {n:'Whispering Forest',c:'#2f6e3b',cap:'Trees whisper his name. Something huge waits at the gate.',boss:'Gorak the Forest Ogre',npc:'The gate opens only when Gorak falls, Kiro.',tr:70,bl:1,car:0,riv:[620,110]},
+ {n:'Crimson River',c:'#3b7a52',cap:'The water runs red. Swim to escape, but you cannot fight in it.',boss:'Lady Mizuchi',npc:'Demons cannot cross water. Use the river!',tr:35,bl:2,car:2,riv:[480,210]},
+ {n:'Ruins of the Fallen City',c:'#5b5662',cap:'Once a city. Now only ash and claws.',boss:'Ironhorn the Wall-Breaker',npc:'Weapons drop from demons. Pick them up!',tr:14,bl:8,car:4,riv:null},
+ {n:'The War Road',c:'#6b5d4a',cap:'Burning wrecks line the road. Warlords hunt here.',boss:'Warlord Kazan',npc:'Fill your spirit bar, then unleash the burst.',tr:12,bl:3,car:10,riv:[650,130]},
+ {n:"Demon King's Keep",c:'#3a1f4d',cap:'The Demon King waits. End this.',boss:'Azur-Oni, the Demon King',npc:'Everything you have won leads to this.',tr:22,bl:4,car:3,riv:null}];
+const WP=[{n:'Rusty Kunai',d:3,e:'🗡️'},{n:'Demon Fang Dagger',d:7,e:'🔪'},{n:'Shadow Katana',d:12,e:'⚔️'},{n:'Flame Spear',d:18,e:'🔱'},{n:'Thunder Blade',d:26,e:'⚡'},{n:"Demon King's Sword",d:40,e:'🗡️'}];
+const TREE=['🌲','🌳','🌳','🌲','🌲'],CARS=['🚙','🚓','🚕','🚛','🚌'],NPCE=['🥷','🧝‍♀️','🧚','🦊','💃'];
+let seed=7;const rnd=()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296},R=(a,b)=>a+rnd()*(b-a);
+let own=[],eq=-1;try{own=JSON.parse(localStorage.getItem('dd_own')||'[]');eq=+(localStorage.getItem('dd_eq')||-1)}catch(e){}
+const save=()=>{try{localStorage.setItem('dd_own',JSON.stringify(own));localStorage.setItem('dd_eq',eq)}catch(e){}};
+let obs,water,en,npcs,items,pops,P,run=false,T=0;
+const y0=i=>(Z-1-i)*ZH,startY=i=>y0(i)+ZH-70;
+const inW=(x,y)=>water.some(w=>y>w.y&&y<w.y+w.h);
+function hit(x,y,r){for(const o of obs)if(!o.off&&x+r>o.x&&x-r<o.x+o.w&&y+r>o.y&&y-r<o.y+o.h)return true;return false}
+function free(x,y,r){return !hit(x,y,r)&&!inW(x,y)}
+function mv(e,dx,dy,r,nw){let x=e.x+dx;if(!hit(x,e.y,r)&&!(nw&&inW(x,e.y)))e.x=Math.max(r,Math.min(W-r,x));let y=e.y+dy;if(!hit(e.x,y,r)&&!(nw&&inW(e.x,y)))e.y=Math.max(r+10,Math.min(WH-r,y))}
+function build(){seed=7;obs=[];water=[];en=[];npcs=[];items=[];pops=[];
+ ZN.forEach((z,i)=>{const t=y0(i);if(z.riv)water.push({y:t+z.riv[0],h:z.riv[1]});
+  const ok=(x,y,w,h)=>{if(y>t+ZH-170||(y<t+230&&x>300&&x<700)||y<t+60)return false;return !water.some(r=>y+h>r.y-12&&y<r.y+r.h+12)};
+  const put=(n,fn,w,h)=>{for(let k=0,c=0;c<n&&k<n*8;k++){const x=R(20,W-20),y=R(t,t+ZH);if(ok(x,y,w,h)&&!hit(x,y,Math.max(w,h)/2+8)){fn(x,y);c++}}};
+  put(z.tr,(x,y)=>obs.push({x:x-10,y:y-8,w:20,h:16,k:'t',e:TREE[i],ex:x,ey:y}),20,16);
+  put(z.bl,(x,y)=>{const w=R(90,140),h=R(70,110);if(x+w<W)obs.push({x,y,w,h,k:'b',c:i==2?'#6d6672':i==4?'#4a2a62':'#7a5c46'})},140,110);
+  put(z.car,(x,y)=>obs.push({x:x-22,y:y-13,w:44,h:26,k:'c',e:CARS[Math.floor(R(0,5))],a:R(-.5,.5),fire:rnd()<.5}),44,26);
+  obs.push({x:0,y:t+8,w:W,h:34,k:'g',zi:i});
+  for(let k=0;k<3;k++){const n={x:R(100,900),y:t+R(500,ZH-300),e:NPCE[Math.floor(R(0,5))],tx:0,ty:0,wt:0,line:z.npc,used:0};if(free(n.x,n.y,12))npcs.push(n)}
+  const cnt=7+3*i;for(let k=0;k<cnt+1;k++){const boss=k==cnt;let x=boss?500:R(40,960),y=boss?t+120:R(t+120,t+ZH-260);
+   for(let q=0;q<30&&(!free(x,y,20)||(!boss&&inW(x,y)));q++){x=R(40,960);y=R(t+120,t+ZH-260)}
+   const r=boss?28:15,hp=boss?300+260*i:30+18*i;en.push({x,y,r,hp,mhp:hp,boss,zi:i,dmg:boss?16+5*i:7+3*i,sp:boss?72:55+8*i,ag:boss?650:300,cd:0,f:0,wt:0,vx:0,vy:0,dead:0,h:i*40+(boss?280:0)})}});
+}
+function reset(){build();P={x:500,y:startY(0),r:11,hp:100,mhp:100,lv:1,xp:0,need:70,ch:0,lives:5,fx:0,fy:-1,cd:0,at:0,bt:0,inv:2,alive:true,sw:false,zi:0,zmax:-1,mm:0};
+ msg('Level 1 · '+ZN[0].n+'<br><small>'+ZN[0].cap+'</small>',3500)}
+let mt;function msg(h,ms){const m=$('msg');m.innerHTML=h;m.style.opacity=1;clearTimeout(mt);mt=setTimeout(()=>m.style.opacity=0,ms||2000)}
+function pop(x,y,s,c){pops.push({x,y,s,c:c||'#fff',t:.8})}
+function giveXp(n){P.xp+=n;while(P.xp>=P.need){P.xp-=P.need;P.lv++;P.need=70+P.lv*35;P.mhp+=14;P.hp=Math.min(P.mhp,P.hp+P.mhp*.4);msg('⚡ POWER UP! Level '+P.lv,2000)}}
+function hurt(e,d,nx,ny){e.hp-=d;e.f=.12;pop(e.x,e.y-e.r-6,Math.round(d),'#ffeb3b');if(!e.boss)mv(e,nx*14,ny*14,e.r*.6,true);if(e.hp<=0)kill(e)}
+function kill(e){e.dead=1;giveXp(e.boss?100*(e.zi+1):12+e.zi*6);P.ch=Math.min(100,P.ch+(e.boss?60:14));
+ if(e.boss||Math.random()<.3){const t=Math.min(5,e.zi+(e.boss||Math.random()<.35?1:0));items.push({x:e.x,y:e.y,t})}
+ if(e.boss){obs.forEach(o=>{if(o.k=='g'&&o.zi==e.zi)o.off=1});if(e.zi==Z-1){run=false;setTimeout(win,1500)}else msg('✅ '+ZN[e.zi].boss+' defeated!<br><small>The gate is open. Move forward.</small>',3500)}}
+function attack(){if(P.cd>0||P.sw||!P.alive)return;P.cd=.32;P.at=.16;let b=null,bd=110;
+ for(const e of en)if(!e.dead){const d=Math.hypot(e.x-P.x,e.y-P.y);if(d<bd){bd=d;b=e}}
+ if(b){P.fx=(b.x-P.x)/bd;P.fy=(b.y-P.y)/bd}
+ const w=eq>=0?WP[eq].d:0,reach=52+P.lv*1.2+w*.3,dm=8+P.lv*2+w;
+ for(const e of en)if(!e.dead){const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy)||1;if(d<e.r+14||(d<reach+e.r&&(dx*P.fx+dy*P.fy)/d>.2))hurt(e,dm*(.85+Math.random()*.3),dx/d,dy/d)}}
+function burst(){if(P.ch<100||!P.alive)return;P.ch=0;P.bt=.5;for(const e of en)if(!e.dead){const dx=e.x-P.x,dy=e.y-P.y,d=Math.hypot(dx,dy)||1;if(d<200)hurt(e,60+P.lv*8,dx/d,dy/d)}}
+function die(){P.alive=false;P.lives--;if(P.lives<=0){run=false;setTimeout(over,900)}else{msg('💔 You fell. Lives left: '+P.lives,1800);setTimeout(()=>{P.x=500;P.y=startY(P.zi);P.hp=P.mhp;P.inv=2.5;P.alive=true},1200)}}
+function show(h){$('pn').innerHTML=h;$('ov').style.display='flex'}
+const hide=()=>$('ov').style.display='none';
+function intro(){show(`<h1>🌀 Demon Dimension</h1><p>Under the Beach Bar, where the tide meets the old road, a purple portal tore open. <b>Kiro</b>, a young shinobi with nothing but his fists and a blue headband, stepped through to find who was sending demons into the world.</p><p>Beyond lies the Demon Dimension: five realms of forest, river, ruins, war-torn road and the Demon King's keep. Each realm is sealed by a demon lord. Every demon Kiro defeats makes him stronger, and the weapons they drop are his to keep forever.</p><p>He carries <b>5 spirit flames</b>. Lose them all and the dimension swallows him, but his weapons stay.</p><p><small>Move: stick / WASD · Attack: ⚔️ / Space · Spirit Burst: 🌀 / K · Bag: 🎒 / I</small></p><button id="go">Enter the portal</button>`);$('go').onclick=()=>{reset();hide();run=true}}
+function over(){show(`<h1>💀 Lost in the dimension</h1><p>You reached <b>${ZN[P.zi].n}</b> at power level ${P.lv}. Your weapons are kept.</p><button id="go">Try again</button>`);$('go').onclick=()=>{reset();hide();run=true}}
+function win(){show(`<h1>🏆 Dimension Cleared!</h1><p>Azur-Oni falls and the portal collapses in a flash of light. Kiro walks out onto the warm beach, stronger than ever, with his weapons in hand.</p><button id="go">Play again</button>`);$('go').onclick=()=>{reset();hide();run=true}}
+function bag(){if(!run)return;run=false;let h='<h1>🎒 Weapons</h1>';h+=`<button class="w ${eq<0?'on':''}" data-i="-1">👊 Bare fists (+0)</button>`;
+ WP.forEach((w,i)=>{if(own.includes(i))h+=`<button class="w ${eq==i?'on':''}" data-i="${i}">${w.e} ${w.n} (+${w.d})</button>`;else h+=`<button class="w" disabled style="opacity:.35">❓ Locked</button>`});
+ show(h+'<button id="cl">Close</button>');document.querySelectorAll('.w[data-i]').forEach(b=>b.onclick=()=>{eq=+b.dataset.i;save();bag2()});$('cl').onclick=()=>{hide();run=true}}
+function bag2(){hide();run=true;bag()}
+$('bI').onclick=bag;
+const K={};addEventListener('keydown',e=>{K[e.key.toLowerCase()]=1;if(e.key=='k')burst();if(e.key=='i')bag()});addEventListener('keyup',e=>K[e.key.toLowerCase()]=0);
+const joy=$('joy'),kn=$('kn');let jv={x:0,y:0},jid=null,ah=false;
+function jm(e){const r=joy.getBoundingClientRect(),dx=e.clientX-(r.left+60),dy=e.clientY-(r.top+60),d=Math.hypot(dx,dy)||1,m=Math.min(d,45)/d;jv={x:dx*m/45,y:dy*m/45};kn.style.transform=`translate(${dx*m}px,${dy*m}px)`}
+joy.onpointerdown=e=>{jid=e.pointerId;joy.setPointerCapture(jid);jm(e)};joy.onpointermove=e=>{if(e.pointerId===jid)jm(e)};
+joy.onpointerup=joy.onpointercancel=()=>{jid=null;jv={x:0,y:0};kn.style.transform=''};
+$('bA').onpointerdown=()=>ah=true;$('bA').onpointerup=$('bA').onpointerleave=()=>ah=false;$('bS').onpointerdown=burst;
+let S=1,dpr=1,cx=0,cy=0;
+function rs(){dpr=devicePixelRatio||1;cv.width=innerWidth*dpr;cv.height=innerHeight*dpr;S=Math.min(innerWidth,innerHeight)/520}addEventListener('resize',rs);rs();
+function update(dt){T+=dt;let mx=(K.d||K.arrowright?1:0)-(K.a||K.arrowleft?1:0)+jv.x,my=(K.s||K.arrowdown?1:0)-(K.w||K.arrowup?1:0)+jv.y;
+ if(P.alive){const m=Math.hypot(mx,my);if(m>.1){const k=Math.min(1,m)/m;mx*=k;my*=k;P.fx=mx/Math.min(1,m);P.fy=my/Math.min(1,m);const n=Math.hypot(P.fx,P.fy)||1;P.fx/=n;P.fy/=n}else mx=my=0;
+  P.sw=inW(P.x,P.y);const sp=(P.sw?75:150+P.lv*1.5)*dt;mv(P,mx*sp,my*sp,P.r,false);
+  if(K[' ']||K.j||ah)attack()}
+ P.cd-=dt;P.at-=dt;P.bt-=dt;P.inv-=dt;
+ const zi=Math.max(0,Math.min(Z-1,Z-1-Math.floor(P.y/ZH)));P.zi=zi;if(zi>P.zmax){P.zmax=zi;if(zi>0)msg('Realm '+(zi+1)+' · '+ZN[zi].n+'<br><small>'+ZN[zi].cap+'</small>',3500)}
+ for(const e of en){if(e.dead)continue;const dx=P.x-e.x,dy=P.y-e.y,d=Math.hypot(dx,dy)||1;if(Math.abs(dy)>800)continue;e.f-=dt;e.cd-=dt;
+  if(d<e.ag&&P.alive){mv(e,dx/d*e.sp*dt,dy/d*e.sp*dt,e.r*.7,true);if(d<e.r+P.r+4&&e.cd<=0&&P.inv<=0&&!P.sw){P.hp-=e.dmg;P.inv=.7;e.cd=1;pop(P.x,P.y-24,e.dmg,'#ff5252');if(P.hp<=0)die()}}
+  else{e.wt-=dt;if(e.wt<0){e.wt=R(1,3);const a=R(0,6.3);e.vx=Math.cos(a)*20;e.vy=Math.sin(a)*20}mv(e,e.vx*dt,e.vy*dt,e.r*.7,true)}}
+ for(const n of npcs){n.wt-=dt;if(n.wt<0){n.wt=R(1,3);const a=R(0,6.3);n.tx=Math.cos(a)*30;n.ty=Math.sin(a)*30}mv(n,n.tx*dt,n.ty*dt,10,true);
+  if(Math.hypot(n.x-P.x,n.y-P.y)<55){n.say=1;if(!n.used){n.used=1;P.hp=Math.min(P.mhp,P.hp+25);pop(n.x,n.y-30,'+25 HP','#69f0ae')}}else n.say=0}
+ for(let i=items.length-1;i>=0;i--){const it=items[i];if(Math.hypot(it.x-P.x,it.y-P.y)<26){items.splice(i,1);if(!own.includes(it.t)){own.push(it.t);if(it.t>eq)eq=it.t;save();msg('🎁 New weapon: '+WP[it.t].e+' '+WP[it.t].n+'<br><small>Equipped. Open 🎒 to change.</small>',3000)}else{giveXp(20);msg('Duplicate '+WP[it.t].n+' · +20 XP',1500)}}}
+ for(let i=pops.length-1;i>=0;i--){pops[i].t-=dt;pops[i].y-=30*dt;if(pops[i].t<0)pops.splice(i,1)}
+ $('hearts').textContent='❤️'.repeat(P.lives)+'🖤'.repeat(5-P.lives);
+ $('hp').firstChild.style.width=Math.max(0,P.hp/P.mhp*100)+'%';$('xp').firstChild.style.width=P.xp/P.need*100+'%';$('ch').firstChild.style.width=P.ch+'%';
+ $('st').textContent='Power Lv '+P.lv+' · '+(eq>=0?WP[eq].e+' '+WP[eq].n:'👊 Fists')+(P.ch>=100?' · 🌀 BURST READY':'')}
+function hero(x,y,sw){g.fillStyle='#0004';g.beginPath();g.ellipse(x,y+10,12,5,0,0,7);g.fill();
+ if(sw){g.strokeStyle='#fff9';g.beginPath();g.arc(x,y+6,12+Math.sin(T*6)*2,0,7);g.stroke()}else{g.fillStyle='#ff7a00';g.fillRect(x-8,y-6,16,16)}
+ const b=sw?6:0;g.fillStyle='#ffd7b0';g.beginPath();g.arc(x,y-12+b,9,0,7);g.fill();g.fillStyle='#ffd400';
+ for(let i=-2;i<=2;i++){g.beginPath();g.moveTo(x+i*4-3,y-17+b);g.lineTo(x+i*5,y-29+b-(i?0:3));g.lineTo(x+i*4+3,y-17+b);g.fill()}
+ g.fillStyle='#1976d2';g.fillRect(x-9,y-17+b,18,4);g.fillStyle='#000';g.fillRect(x-4,y-11+b,2,3);g.fillRect(x+2,y-11+b,2,3)}
+function demon(e){const x=e.x,y=e.y,r=e.r;g.fillStyle='#0004';g.beginPath();g.ellipse(x,y+r*.7,r,r*.4,0,0,7);g.fill();
+ g.fillStyle=e.f>0?'#fff':e.boss?'#6a1b9a':`hsl(${355-e.h*.2},70%,${38-e.zi*3}%)`;g.beginPath();g.arc(x,y-r*.3,r,0,7);g.fill();
+ g.fillStyle='#ffe082';for(const s of[-1,1]){g.beginPath();g.moveTo(x+s*r*.4,y-r*1.1);g.lineTo(x+s*r*.9,y-r*1.9);g.lineTo(x+s*r*.9,y-r*.9);g.fill()}
+ g.fillStyle='#ffee58';g.fillRect(x-r*.5,y-r*.5,r*.3,r*.2);g.fillRect(x+r*.2,y-r*.5,r*.3,r*.2);
+ g.fillStyle='#000a';g.fillRect(x-r,y-r*2.2,r*2,4);g.fillStyle='#e53935';g.fillRect(x-r,y-r*2.2,r*2*e.hp/e.mhp,4)}
+function draw(){g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,cv.width,cv.height);const k=S*dpr,vw=innerWidth/S,vh=innerHeight/S;
+ cx=Math.max(0,Math.min(W-vw,P.x-vw/2));if(vw>W)cx=(W-vw)/2;cy=Math.max(0,Math.min(WH-vh,P.y-vh/2+30));
+ g.setTransform(k,0,0,k,-cx*k,-cy*k);
+ ZN.forEach((z,i)=>{const t=y0(i);if(t+ZH<cy||t>cy+vh)return;g.fillStyle=z.c;g.fillRect(0,t,W,ZH);g.fillStyle='#0000001a';for(let y=t;y<t+ZH;y+=160)g.fillRect(0,y,W,80);
+  if(i==3){g.fillStyle='#3b3b44';g.fillRect(380,t,240,ZH);g.fillStyle='#fffb';for(let y=t;y<t+ZH;y+=70)g.fillRect(496,y,8,36)}
+  if(i==4){g.fillStyle='#ff3d7144';g.fillRect(0,t,W,ZH)}});
+ for(const w of water){if(w.y+w.h<cy||w.y>cy+vh)continue;g.fillStyle='#2b86c5';g.fillRect(0,w.y,W,w.h);g.strokeStyle='#ffffff55';g.lineWidth=2;
+  for(let y=w.y+16;y<w.y+w.h;y+=26){g.beginPath();for(let x=cx;x<=cx+vw+10;x+=14)g.lineTo(x,y+Math.sin(x*.05+T*2+y)*3);g.stroke()}g.strokeStyle='#fff';g.beginPath();g.moveTo(0,w.y);g.lineTo(W,w.y);g.moveTo(0,w.y+w.h);g.lineTo(W,w.y+w.h);g.stroke()}
+ const sp=[];g.textAlign='center';g.textBaseline='middle';
+ for(const o of obs){if(o.off||o.y+o.h<cy-60||o.y>cy+vh+60)continue;
+  if(o.k=='t')sp.push({y:o.ey,f:()=>{g.font='44px serif';g.fillText(o.e,o.ex,o.ey-14)}});
+  else if(o.k=='b'){g.fillStyle=o.c;g.fillRect(o.x,o.y,o.w,o.h);g.fillStyle='#0006';g.fillRect(o.x,o.y+o.h-10,o.w,10);g.fillStyle='#2a2430';g.fillRect(o.x-4,o.y-6,o.w+8,8);
+   g.fillStyle='#111';for(let wx=o.x+12;wx<o.x+o.w-20;wx+=28)for(let wy=o.y+14;wy<o.y+o.h-24;wy+=26)g.fillRect(wx,wy,14,16)}
+  else if(o.k=='c'){g.save();g.translate(o.x+22,o.y+13);g.rotate(o.a);g.font='36px serif';g.fillText(o.e,0,0);g.fillStyle='#0000004d';g.fillRect(-20,-12,40,24);if(o.fire){g.font=(18+Math.sin(T*9+o.x)*3)+'px serif';g.fillText('🔥',0,-12)}g.restore()}
+  else if(o.k=='g'){g.fillStyle=`rgba(180,60,255,${.55+Math.sin(T*5)*.2})`;g.fillRect(0,o.y,W,o.h);g.fillStyle='#fff';g.font='700 14px system-ui';g.fillText('SEALED · defeat '+ZN[o.zi].boss,W/2,o.y+17)}}
+ for(const it of items)sp.push({y:it.y,f:()=>{g.fillStyle='#ffeb3b55';g.beginPath();g.arc(it.x,it.y,16+Math.sin(T*6)*3,0,7);g.fill();g.font='24px serif';g.fillText(WP[it.t].e,it.x,it.y)}});
+ for(const n of npcs)sp.push({y:n.y,f:()=>{g.font='30px serif';g.fillText(n.e,n.x,n.y-14+Math.sin(T*3+n.x)*3);if(n.say){g.font='600 12px system-ui';const w=g.measureText(n.line).width+14;g.fillStyle='#000c';g.fillRect(n.x-w/2,n.y-60,w,20);g.fillStyle='#fff';g.fillText(n.line,n.x,n.y-50)}}});
+ for(const e of en)if(!e.dead&&Math.abs(e.y-P.y)<vh)sp.push({y:e.y,f:()=>demon(e)});
+ sp.push({y:P.y,f:()=>{if(P.alive&&(P.inv<=0||Math.floor(T*14)%2))hero(P.x,P.y,P.sw)}});
+ sp.sort((a,b)=>a.y-b.y);for(const s of sp)if(s.y>cy-60&&s.y<cy+vh+60)s.f();
+ if(P.at>0){g.strokeStyle='#fff';g.lineWidth=5;g.beginPath();const a=Math.atan2(P.fy,P.fx);g.arc(P.x,P.y-6,48,a-1,a+1);g.stroke()}
+ if(P.bt>0){g.strokeStyle='#4fc3f7';g.lineWidth=8;g.beginPath();g.arc(P.x,P.y,(.5-P.bt)*400,0,7);g.stroke()}
+ g.font='700 16px system-ui';for(const p of pops){g.fillStyle=p.c;g.strokeStyle='#000';g.lineWidth=3;g.strokeText(p.s,p.x,p.y);g.fillText(p.s,p.x,p.y)}}
+let last=performance.now();
+function loop(n){const dt=Math.min(.05,(n-last)/1000);last=n;if(P){if(run)update(dt);else T+=dt;draw()}requestAnimationFrame(loop)}
+reset();requestAnimationFrame(loop);intro();
+</script></body></html>
