@@ -466,6 +466,7 @@
       border: 0 !important; border-radius: 50%; cursor: pointer; flex: none;
     }
     #chat-input-row .composer-btn:hover { background: #f1f1f1 !important; }
+    #chat-input-row #mic-btn, #chat-input-row #send-btn { margin-left: auto !important; }
     #chat-input-row .composer-btn svg { width: 24px; height: 24px; display: block; }
     #chat-input-row .send-circle {
       background: #25D366 !important; color: #fff !important;
@@ -473,7 +474,7 @@
     }
     #chat-input-row .send-circle:hover { background: #1fbd5a !important; }
     #chat-input-row #message-input {
-      flex: 1 1 auto; min-width: 0; width: auto !important;
+      flex: 1 1 0; min-width: 0; width: auto !important; max-width: none !important;
       margin: 0 !important; padding: 12px 6px !important;
       border: 0 !important; border-radius: 0 !important;
       background: transparent !important; box-shadow: none !important; outline: none;
@@ -493,6 +494,7 @@
       width: auto !important; margin: 0 !important; padding: 4px 0 !important;
       background: transparent !important; border: 0 !important;
       font-size: 24px; line-height: 1.2; cursor: pointer; border-radius: 8px;
+      height: auto !important; min-width: 0 !important; box-shadow: none !important; color: #000 !important;
     }
     #emoji-panel button:hover { background: #f1f1f1 !important; }
     #voice-bar { flex: 0 0 auto; margin: 8px 12px; }
@@ -773,7 +775,7 @@
         <button class="composer-btn" onclick="toggleAttachMenu(event)" aria-label="Attach">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
-        <button class="composer-btn" onclick="toggleEmojiPanel(event)" aria-label="Emoji">
+        <button class="composer-btn" id="emoji-btn" type="button" aria-label="Emoji">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14c1 1.5 2.3 2.2 3.5 2.2s2.5-.7 3.5-2.2"/><circle cx="9" cy="10" r=".8" fill="currentColor"/><circle cx="15" cy="10" r=".8" fill="currentColor"/></svg>
         </button>
         <input type="text" id="message-input" placeholder="Type a message" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter') sendMessage()">
@@ -897,32 +899,41 @@
   (function () {
     var input = document.getElementById('message-input');
     var panel = document.getElementById('emoji-panel');
+    var emojiBtn = document.getElementById('emoji-btn');
     var mic = document.getElementById('mic-btn');
     var send = document.getElementById('send-btn');
-    if (!input || !panel || !mic || !send) return;
+    if (!input || !panel || !emojiBtn || !mic || !send) return;
 
-    '😀😂🥹😍😘😎🤔😢😭😡🥳😴🙏👍👎👏🙌💪🤝👋❤️💕💔🔥✨🎉🌹😊😉😅🤣😇🙄😬🤗😏😜🤩😋🥰😳😱🤦🤷💯✅❌🎂🎁☕🍕🌍📞'
-      .match(/\p{Extended_Pictographic}(\uFE0F|\u200D\p{Extended_Pictographic})*/gu)
-      .forEach(function (e) {
-        var b = document.createElement('button');
-        b.type = 'button'; b.textContent = e;
-        b.onclick = function (ev) {
-          ev.stopPropagation();
-          var st = input.selectionStart == null ? input.value.length : input.selectionStart;
-          input.setRangeText(e, st, input.selectionEnd == null ? st : input.selectionEnd, 'end');
-          input.focus(); update();
-        };
-        panel.appendChild(b);
+    var EMOJIS = ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','😉','😊','😇','🥰','😍','🤩','😘',
+      '😋','😜','🤪','😎','🤗','🤔','😐','🙄','😏','😬','😴','😢','😭','😤','😡','🥺',
+      '😱','🥳','😳','🤦','🤷','🙏','👍','👎','👏','🙌','💪','🤝','👋','✌️','🤞','👌',
+      '❤️','🧡','💛','💚','💙','💜','🖤','💕','💔','💯','🔥','✨','🎉','🎂','🎁','🌹',
+      '☕','🍕','🍔','🍺','🌍','⭐','✅','❌','📞','📷','🎵','🏠'];
+
+    EMOJIS.forEach(function (e) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = e;
+      b.addEventListener('mousedown', function (ev) { ev.preventDefault(); });   // keep keyboard open
+      b.addEventListener('click', function () {
+        var start = input.selectionStart, end = input.selectionEnd;
+        if (start == null) { start = end = input.value.length; }
+        input.value = input.value.slice(0, start) + e + input.value.slice(end);
+        var pos = start + e.length;
+        try { input.setSelectionRange(pos, pos); } catch (err) {}
+        input.focus();
+        update();
       });
+      panel.appendChild(b);
+    });
 
-    window.toggleEmojiPanel = function (ev) {
-      ev.stopPropagation();
+    emojiBtn.addEventListener('click', function () {
       var menu = document.getElementById('attach-menu');
       if (menu) menu.style.display = 'none';
-      panel.style.display = panel.style.display === 'grid' ? 'none' : 'grid';
-    };
+      panel.style.display = (panel.style.display === 'grid') ? 'none' : 'grid';
+    });
     document.addEventListener('click', function (ev) {
-      if (!panel.contains(ev.target)) panel.style.display = 'none';
+      if (!panel.contains(ev.target) && !emojiBtn.contains(ev.target)) panel.style.display = 'none';
     });
 
     function update() {
