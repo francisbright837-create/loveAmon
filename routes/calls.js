@@ -11,21 +11,31 @@ const STUN = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:
 
 let cache = { at: 0, servers: null };
 
+// values pasted into Render sometimes have spaces or quotation marks around them - ignore those
+const clean = (v) => (typeof v === "string" ? v.trim().replace(/^["']+|["']+$/g, "").trim() : "");
+
+// which relay settings are present? (names only - never the values)
+function relayStatus() {
+  const missing = ["TURN_URLS", "TURN_USERNAME", "TURN_CREDENTIAL"].filter((name) => !clean(process.env[name]));
+  const metered = !!clean(process.env.METERED_API_URL);
+  return { configured: metered || missing.length === 0, usingMeteredUrl: metered, missing: metered ? [] : missing };
+}
+
 async function getIceServers() {
   if (cache.servers && Date.now() - cache.at < 5 * 60 * 1000) return cache.servers;
   const servers = [...STUN];
 
-  if (process.env.TURN_URLS && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
+  if (clean(process.env.TURN_URLS) && clean(process.env.TURN_USERNAME) && clean(process.env.TURN_CREDENTIAL)) {
     servers.push({
-      urls: process.env.TURN_URLS.split(",").map((u) => u.trim()).filter(Boolean),
-      username: process.env.TURN_USERNAME,
-      credential: process.env.TURN_CREDENTIAL
+      urls: clean(process.env.TURN_URLS).split(",").map(clean).filter(Boolean),
+      username: clean(process.env.TURN_USERNAME),
+      credential: clean(process.env.TURN_CREDENTIAL)
     });
   }
 
-  if (process.env.METERED_API_URL) {
+  if (clean(process.env.METERED_API_URL)) {
     try {
-      const res = await fetch(process.env.METERED_API_URL);
+      const res = await fetch(clean(process.env.METERED_API_URL));
       const extra = await res.json();
       if (res.ok && Array.isArray(extra)) servers.push(...extra);
     } catch (err) {
@@ -34,14 +44,16 @@ async function getIceServers() {
   }
 
   cache = { at: Date.now(), servers };
+  const st = relayStatus();
+  console.log("Call relay (TURN):", st.configured ? "configured" : "NOT configured, missing: " + st.missing.join(", "));
   return servers;
 }
 
 router.get("/ice", async (req, res) => {
   try {
-    res.json({ iceServers: await getIceServers() });
+    res.json({ iceServers: await getIceServers(), relay: relayStatus() });
   } catch (err) {
-    res.json({ iceServers: STUN });
+    res.json({ iceServers: STUN, relay: relayStatus() });
   }
 });
 
