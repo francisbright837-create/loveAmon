@@ -1,4 +1,4 @@
-const API_URL = "https://loveamon.onrender.com/api";
+const API_URL = ((location.protocol === "http:" || location.protocol === "https:") ? location.origin : "https://loveamon.onrender.com") + "/api";
 
 let token = null;
 let currentUser = null;
