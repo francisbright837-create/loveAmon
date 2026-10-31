@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Fortress of Embers</title>
+<style>
+:root{--bg:#07060a;--fg:#e9e2d4;--gold:#c9a45c;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#07060a;--fg:#e9e2d4}}
+:root[data-theme="dark"]{--bg:#07060a;--fg:#e9e2d4}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:Georgia,"Times New Roman",serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block;width:100%;height:100%}
+#vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 45%,rgba(0,0,0,.75) 100%)}
+#hud{position:fixed;left:14px;top:14px;width:min(320px,52vw);pointer-events:none}
+.bar{height:10px;background:rgba(0,0,0,.65);border:1px solid #6b6252;margin-bottom:5px;box-shadow:0 0 6px #000}
+.bar i{display:block;height:100%;transition:width .12s}
+#hp i{background:linear-gradient(#d4503a,#7a1810)}#st i{background:linear-gradient(#7cc45a,#3b6a28)}
+#info{position:fixed;right:16px;top:14px;text-align:right;font-size:14px;color:var(--gold);text-shadow:0 0 6px #000;pointer-events:none}
+#exit{position:fixed;right:14px;bottom:14px;background:rgba(0,0,0,.55);color:var(--fg);border:1px solid #6b6252;padding:8px 12px;font:13px Georgia,serif;border-radius:6px;z-index:5}
+#msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;pointer-events:none;font-size:clamp(26px,7vw,64px);letter-spacing:.14em;color:#c8b27a;text-shadow:0 0 24px #000;opacity:0;transition:opacity 1.2s;text-align:center}
+#msg small{font-size:clamp(13px,2.4vw,18px);letter-spacing:.08em;color:#9c9484;margin-top:12px}
+#lock{position:fixed;width:18px;height:18px;margin:-9px 0 0 -9px;border:2px solid #e24a38;transform:rotate(45deg);pointer-events:none;display:none;box-shadow:0 0 8px #e24a38}
+.dmg{position:fixed;color:#ffd7a0;font-weight:bold;text-shadow:0 0 6px #000,0 0 3px #a33;pointer-events:none;font-size:20px;transform:translate(-50%,-50%)}
+.btn{position:fixed;border-radius:50%;border:2px solid rgba(201,164,92,.7);background:rgba(10,8,6,.55);color:var(--fg);display:flex;align-items:center;justify-content:center;font:14px Georgia,serif;touch-action:none;z-index:4}
+#bA{right:22px;bottom:70px;width:84px;height:84px;font-size:15px}#bR{right:118px;bottom:40px;width:64px;height:64px}#bL{right:34px;bottom:170px;width:56px;height:56px}
+#joy{position:fixed;border-radius:50%;border:2px solid rgba(255,255,255,.35);display:none;pointer-events:none;width:120px;height:120px;margin:-60px 0 0 -60px}
+#joy i{position:absolute;width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.3);left:36px;top:36px}
+#help{position:fixed;left:14px;bottom:14px;font-size:12px;color:#8a8272;pointer-events:none;line-height:1.5}
+</style></head><body>
+<div id="vig"></div>
+<div id="hud"><div class="bar" id="hp"><i style="width:100%"></i></div><div class="bar" id="st"><i style="width:100%"></i></div></div>
+<div id="info"><div id="souls">Souls 0</div><div id="wave"></div></div>
+<div id="msg"></div><div id="lock"></div><div id="joy"><i></i></div>
+<div class="btn" id="bA">Attack</div><div class="btn" id="bR">Roll</div><div class="btn" id="bL">Lock</div>
+<button id="exit">✕ Exit</button>
+<div id="help">WASD move · Space roll · J / click attack · Q lock-on · drag to turn camera</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="fortress.js"></script>
+</body></html>

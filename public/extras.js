@@ -131,6 +131,9 @@
  (function(){const card=document.getElementById('sg-start-card');if(!card||!card.querySelector)return;const row=document.createElement('div');row.id='sg-heroes';row.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0';
   Object.keys(HEROES).forEach(id=>{const H=HEROES[id],b=document.createElement('button');b.type='button';b.dataset.hero=id;b.style.cssText='display:flex!important;flex-direction:column;align-items:center;gap:3px;padding:6px 2px!important;margin:0!important;width:auto!important;height:auto!important;background:#14121c!important;border:2px solid '+H.color+'!important;border-radius:10px;color:#fff;font-size:10px;cursor:pointer';
    b.innerHTML='<img src="/sprites/'+id+'.png" alt="" style="height:72px;max-width:100%;object-fit:contain" onerror="this.style.display=\'none\'"><b style="color:'+H.color+';font-size:13px">'+H.name+'</b><span style="opacity:.85;line-height:1.15">'+H.tag+'</span>';b.onclick=()=>pickHero(id);row.appendChild(b)});
+  const fb=document.createElement('button');fb.type='button';fb.textContent='🔥 Play 3D Fortress';fb.style.cssText='display:block!important;width:100%!important;margin:10px 0 0!important;padding:11px!important;border:2px solid #c9a45c!important;border-radius:10px;background:#2a1710!important;color:#ffd7a0;font-weight:bold;cursor:pointer';
+  fb.onclick=()=>{const f=document.createElement('iframe');f.src='/fortress.html';f.style.cssText='position:fixed;inset:0;width:100%;height:100%;border:0;z-index:2147483000;background:#000';f.allow='fullscreen';document.body.appendChild(f);const off=e=>{if(e.data==='fortress-exit'){f.remove();removeEventListener('message',off)}};addEventListener('message',off)};
+  card.appendChild(fb);
   const t=document.createElement('div');t.style.cssText='color:#ffb347;font-weight:bold;margin-top:8px';t.textContent='CHOOSE YOUR HERO';const f=card.querySelector('button');card.insertBefore(t,f);card.insertBefore(row,f);pickHero(heroId)})();
  if(coarse){const dp=document.getElementById('sg-dpad');if(dp)dp.style.display='none'}
  canvas.style.touchAction='none';screen.style.touchAction='none';
@@ -245,6 +248,7 @@
   ctx.fillStyle='rgba(0,0,0,.55)';ctx.fillRect(bx,by,bw,9);ctx.fillRect(bx,by+12,bw,7);ctx.fillStyle='#6ddc4a';ctx.fillRect(bx,by,bw*Math.max(0,player.hp/player.max),9);ctx.fillStyle='#3aa6ff';ctx.fillRect(bx,by+12,bw*Math.min(1,player.xp/need),7);ctx.strokeStyle='rgba(255,255,255,.35)';ctx.strokeRect(bx,by,bw,9);ctx.strokeRect(bx,by+12,bw,7);ctx.textAlign='left';drawJoy()}
  function loop(ts){raf=0;if(!active)return;const dt=Math.min((ts-last)/1000||0,.04);last=ts;if(started)update(dt);draw();raf=requestAnimationFrame(loop)}
 })();
+
 
 
 
