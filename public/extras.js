@@ -65,14 +65,10 @@
   })();
 
 /* 3D Fortress launcher (the old 2D Shadow Dimension game was removed) */
-window.openFortress=function(){
+window.openFortress=function(onExit){
   if(document.getElementById('fortress-frame'))return;
   const f=document.createElement('iframe');f.id='fortress-frame';f.src='/fortress.html';f.allow='fullscreen';
   f.style.cssText='position:fixed;inset:0;width:100%;height:100%;border:0;z-index:2147483000;background:#000';
   document.body.appendChild(f);f.addEventListener('load',()=>{try{f.contentWindow.focus()}catch(x){}});f.focus();
-  const off=m=>{if(m.data==='fortress-exit'){f.remove();removeEventListener('message',off)}};addEventListener('message',off);
+  const off=m=>{if(m.data==='fortress-exit'){f.remove();removeEventListener('message',off);if(typeof onExit==='function')onExit()}};addEventListener('message',off);
 };
-
-
-
-

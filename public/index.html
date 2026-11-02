@@ -670,59 +670,6 @@
       <div id="upload-status" style="margin-top:10px;"></div>
     </div>
 
-    <!-- Portal Dimension (demon fighting game) -->
-    <div id="portal-screen" style="display:none; position:fixed; inset:0; z-index:9700; background:#0d0618; text-align:left; user-select:none; -webkit-user-select:none;">
-      <canvas id="dim-canvas" style="position:absolute; inset:0; display:block; touch-action:none;"></canvas>
-
-      <div style="position:absolute; top:0; left:0; right:0; height:64px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; color:white; z-index:2; pointer-events:none;">
-        <div id="dim-hearts" style="font-size:26px;"></div>
-        <div id="dim-level" style="font-weight:700; font-size:16px;"></div>
-        <button class="world-btn" style="pointer-events:auto;" onclick="exitDimension()">🏃 Run away</button>
-      </div>
-
-      <div style="position:absolute; left:0; right:0; bottom:0; height:96px; display:flex; align-items:center; justify-content:center; gap:28px; padding-bottom:env(safe-area-inset-bottom, 0px); z-index:2;">
-        <button class="dim-act" onclick="dimKnife()" aria-label="Knife">🗡️<small>Knife</small></button>
-        <button id="dim-bow" class="dim-act" onclick="dimBow()" aria-label="Bow">🏹<small id="dim-arrows">10</small></button>
-      </div>
-
-      <div id="dim-story" style="display:none; position:absolute; inset:0; background:rgba(5,6,15,0.97); z-index:7; flex-direction:column; align-items:center; padding:20px 16px 28px; box-sizing:border-box; color:white; overflow-y:auto; text-align:left;">
-        <div style="max-width:460px; width:100%; margin:auto 0; line-height:1.45; font-size:15px;">
-          <h2 style="margin:0 0 4px; color:#ff7a1f; text-align:center;">SHADOW DIMENSION</h2>
-          <h3 style="margin:14px 0 6px; color:#ffd54f;">Chapter 1: The World Beyond the Gate</h3>
-          <p style="margin:0 0 8px;">Ren, a young warrior, discovers an ancient portal hidden beneath the ruins of his hometown. A mysterious voice calls to him from beyond it. When he touches it, the ground collapses and he is dragged into another dimension: the Shadow Dimension.</p>
-          <p style="margin:0 0 8px;">It was once a beautiful world of forests, rivers, villages and powerful warriors, until a terrible war between humans and demons destroyed everything. Now abandoned buildings rise from the earth, burned-out cars and broken military vehicles lie across ruined roads, and demons hunt anyone who enters.</p>
-          <p style="margin:0 0 8px;">Ren carries a mysterious power: the <b style="color:#c04dff;">Shadow Core</b>. Every demon he defeats feeds it, and his strength grows. But the deeper he goes, the stronger the demons become, and something powerful waits at the end of every realm.</p>
-          <h3 style="margin:14px 0 6px; color:#ffd54f;">Chapter 2: The Five Realms</h3>
-          <p style="margin:0 0 6px;"><b>1. The Fallen City.</b> Weak demons, ruined buildings, the first shrine. Boss: the Gatekeeper Demon.</p>
-          <p style="margin:0 0 6px;"><b>2. The Cursed Forest.</b> Giant trees, poisonous plants and fast demons. Boss: the Forest Guardian.</p>
-          <p style="margin:0 0 6px;"><b>3. The Drowned Kingdom.</b> Flooded villages, deep rivers and aquatic demons.</p>
-          <p style="margin:0 0 6px;"><b>4. The Battlefield of Souls.</b> Destroyed cars, tanks and military bases. Elite demons hunt you.</p>
-          <p style="margin:0 0 12px;"><b>5. The Demon King’s Domain.</b> A fortress of dark energy. Defeat the demon generals, then face the Demon King.</p>
-          <h3 style="margin:14px 0 6px; color:#ffd54f;">Chapter 3: The Truth of the Shadow Core</h3>
-          <p style="margin:0 0 12px;">Defeat the boss of each realm to uncover why the portal chose Ren, and what the Shadow Core really is.</p>
-          <button onclick="dimStoryContinue()" style="width:100%; max-width:none; margin:0; padding:14px; border:0; border-radius:12px; background:#ff7a1f; color:white; font-size:17px; font-weight:700;">Choose your hero ▶</button>
-        </div>
-      </div>
-
-      <div id="dim-pick" style="display:none; position:absolute; inset:0; background:rgba(5,6,15,0.95); z-index:6; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:16px; box-sizing:border-box; color:white; text-align:center; overflow-y:auto;">
-        <h2 style="margin:0; color:#ff7a1f;">Choose your hero</h2>
-        <div class="hero-grid">
-          <button class="hero-card" style="--c:#ff7a1f;" onclick="pickDimHero('kai')"><img src="/sprites/kai.png" alt=""><b>Kai</b><span>Balanced hero. Great for all situations.</span></button>
-          <button class="hero-card" style="--c:#ff5fa8;" onclick="pickDimHero('luna')"><img src="/sprites/luna.png" alt=""><b>Luna</b><span>Magic specialist. Arrows hit twice as hard.</span></button>
-          <button class="hero-card" style="--c:#4da3ff;" onclick="pickDimHero('rei')"><img src="/sprites/rei.png" alt=""><b>Rei</b><span>Defender. Stays protected longer after a hit.</span></button>
-          <button class="hero-card" style="--c:#7bff3d;" onclick="pickDimHero('mika')"><img src="/sprites/mika.png" alt=""><b>Mika</b><span>Agile assassin. Fast, with critical hits.</span></button>
-        </div>
-        <small style="opacity:0.75;">Everyone fights with a knife and arrows. 3 lives.</small>
-        <button onclick="document.getElementById('dim-story').style.display='flex'" style="width:auto; max-width:none; margin:0; padding:8px 14px; border:0; border-radius:10px; background:rgba(255,255,255,0.12); color:white;">📖 Story &amp; realms</button>
-      </div>
-
-      <div id="dim-end" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.85); z-index:5; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:white; text-align:center; padding:20px; box-sizing:border-box;">
-        <h2 id="dim-end-title" style="margin:0;"></h2>
-        <p id="dim-end-text" style="max-width:340px; margin:0;"></p>
-        <button onclick="exitDimension()" style="max-width:300px;">Return to town</button>
-      </div>
-    </div>
-
     <!-- Camera Screen (photo / video with AI places & characters) -->
     <div id="camera-screen" style="display:none; position:fixed; inset:0; z-index:9600; background:#000; text-align:left;">
       <video id="cam-video" playsinline muted autoplay style="display:none;"></video>
