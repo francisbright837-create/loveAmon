@@ -502,21 +502,6 @@
       #chat-messages { padding: 16px 12%; }
     }
 
-    /* Shadow Dimension mini-game added without removing existing LoveConnect features */
-    #shadow-game-screen{display:none;position:fixed;inset:0 0 64px;z-index:9400;background:#100b1b;color:white;overflow:hidden;font-family:Arial,sans-serif}
-    #shadow-game-canvas{display:block;width:100%;height:100%;touch-action:none}
-    #shadow-game-hud{position:absolute;inset:10px 10px auto;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;pointer-events:none}
-    .sg-panel{background:#100b20d9;border:1px solid #bba4ff70;border-radius:11px;padding:9px 11px;font-size:12px;max-width:48%;text-shadow:none}
-    #sg-start{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#100b1bdc;padding:18px}
-    #sg-start-card{max-width:520px;background:linear-gradient(145deg,#251431,#101624);border:1px solid #bba4ff77;border-radius:18px;padding:25px;box-shadow:0 12px 40px #0009}
-    #sg-start-card h2{font-size:clamp(26px,5vw,42px);margin:8px 0;color:#c7b1ff}
-    #sg-start-card p{line-height:1.5;color:#e4dbea}
-    #sg-start-card button{width:auto;margin:5px 5px 0 0;padding:10px 15px;background:#ff4d8d;color:#fff;border:0;border-radius:9px}
-    #sg-controls{position:absolute;bottom:12px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:flex-end;pointer-events:none}
-    #sg-dpad,#sg-actions{display:flex;gap:7px;pointer-events:auto}
-    #sg-controls button{width:46px;height:44px;margin:0;padding:0;border:1px solid #ffffff66;border-radius:12px;background:#171126cc;color:white;font-size:18px;touch-action:none}
-    #sg-actions button{background:#a52e65cc;font-size:12px;font-weight:bold}
-    @media(min-width:800px){#sg-controls{opacity:.72}#sg-controls button{width:42px;height:38px}}
   </style>
 </head>
 <body>
@@ -888,16 +873,6 @@
     </div>
 
 
-    <!-- Shadow Dimension: optional anime action mini-game -->
-    <section id="shadow-game-screen" aria-label="Shadow Dimension game">
-      <canvas id="shadow-game-canvas"></canvas>
-      <div id="shadow-game-hud">
-        <div class="sg-panel"><b>SHADOW DIMENSION</b><br><span id="sg-stats">Level 1 · Power 1 · Demons 0</span><div style="height:5px;background:#49354f;border-radius:5px;margin-top:6px;overflow:hidden"><div id="sg-health" style="height:100%;width:100%;background:#ff4d8d"></div></div></div>
-        <div class="sg-panel" style="text-align:right"><b id="sg-weapon">⚔ Rift Katana</b><br><span id="sg-objective">Find the shrine in the east</span><br><button onclick="closeShadowGame()" style="pointer-events:auto;width:auto;height:auto;padding:5px 8px;margin-top:5px;font-size:11px">✕ Exit</button></div>
-      </div>
-      <div id="sg-start"><div id="sg-start-card"><div style="color:#ff639b;font-weight:bold;letter-spacing:2px;font-size:11px">ANIME ACTION ADVENTURE</div><h2>SHADOW DIMENSION<br>DEMONFALL</h2><p>Ren has fallen into a broken dimension of demon-infested ruins, haunted forests, rivers and abandoned war machines. Defeat demons to gain power, collect their weapons, and reach the Gatekeeper shrine.</p><p><b>Controls:</b> WASD / arrow keys to move · Space to attack · E to collect weapons or activate the shrine. On phones, use the on-screen buttons.</p><button onclick="startShadowGame()">ENTER THE DIMENSION</button><button onclick="closeShadowGame()" style="background:#45324e">BACK TO LOVEConnect</button></div></div>
-      <div id="sg-controls"><div id="sg-dpad"><button data-move="up">▲</button><div style="display:flex;flex-direction:column;gap:7px"><button data-move="left">◀</button><button data-move="down">▼</button></div><button data-move="right">▶</button></div><div id="sg-actions"><button id="sg-attack">ATTACK</button><button id="sg-pickup">COLLECT / E</button></div></div>
-    </section>
 
     <!-- Bottom Nav Bar -->
     <div id="bottom-nav" class="bottom-nav">
@@ -907,8 +882,8 @@
       <button id="nav-matches" onclick="showTab('matching')">
         <span class="nav-icon">👥</span> Matches
       </button>
-      <button id="nav-shadow-game" onclick="openShadowGame()">
-        <span class="nav-icon">⚔️</span> Game
+      <button id="nav-fortress" onclick="openFortress()">
+        <span class="nav-icon">⚔️</span> Fortress
       </button>
       <button id="nav-world" onclick="openWorld()">
         <span class="nav-icon">🌍</span> World
@@ -930,6 +905,6 @@
 </div>
 
 <script src="script.js?v=3"></script>
-<script src="extras.js?v=7"></script>
+<script src="extras.js?v=9"></script>
 </body>
 </html>
