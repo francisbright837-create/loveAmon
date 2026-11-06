@@ -238,7 +238,7 @@ function hideAllScreens() {
     'matching-screen', 'messages-screen', 'my-profile-screen',
     'upload-video-screen', 'edit-profile-screen', 'chat-screen', 'group-create-screen',
     'video-feed-screen', 'video-detail-screen', 'public-profile-screen',
-    'map-screen', 'world-screen', 'camera-screen'
+    'map-screen', 'world-screen', 'camera-screen', 'ai-screen'
   ].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
@@ -256,6 +256,10 @@ function showTab(tab) {
     document.getElementById('nav-videos').classList.add('active');
     closeFeedSearch();
     loadVideoFeed();
+  } else if (tab === 'ai') {
+    document.getElementById('ai-screen').style.display = 'block';
+    document.getElementById('nav-ai').classList.add('active');
+    openAiTab();
   } else if (tab === 'messages') {
     document.getElementById('messages-screen').style.display = 'block';
     document.getElementById('nav-messages').classList.add('active');
@@ -520,7 +524,7 @@ async function loadVideoFeed() {
     const videos = await res.json();
     if (!res.ok) throw new Error(videos.message || 'Failed to load videos');
 
-    feedVideos = videos;
+    feedVideos = videos.filter(v => !/(^|\s)#AI\b/i.test(v.caption || ''));   // AI videos live in the AI tab
     feedIndex = 0;
 
     if (!feedVideos.length) {
@@ -896,7 +900,8 @@ async function openVideoDetail(videoId) {
 function closeVideoDetail() {
   document.getElementById('video-detail-screen').style.display = 'none';
   currentVideoId = null;
-  showTab('videos');
+  const backToAi = window.aiReturn; window.aiReturn = false;
+  showTab(backToAi ? 'ai' : 'videos');
 }
 
 async function loadVideoDetail(videoId) {
