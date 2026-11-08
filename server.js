@@ -47,6 +47,10 @@ const allowedOrigins = [
   "https://loveamon.onrender.com"
 ];
 
+// Extra allowed addresses from .env, e.g. EXTRA_ORIGINS=https://yourname.trycloudflare.com
+(process.env.EXTRA_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean)
+  .forEach(o => allowedOrigins.push(o));
+
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -106,6 +110,7 @@ const videoRoutes = require("./routes/video");
 const followRoutes = require("./routes/follow");
 const chatRoutes = require("./routes/chat");
 const callRoutes = require("./routes/calls");
+const aiRoutes = require("./routes/ai");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", authMiddleware, profileRoutes);
@@ -116,6 +121,7 @@ app.use("/api/videos", authMiddleware, videoRoutes);
 app.use("/api/follow", authMiddleware, followRoutes);
 app.use("/api/chat", authMiddleware, chatRoutes);
 app.use("/api/calls", authMiddleware, callRoutes);
+app.use("/api/ai", authMiddleware, aiRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({
