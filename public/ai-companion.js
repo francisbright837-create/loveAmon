@@ -7,6 +7,37 @@
   const key = () => 'aiChat:' + (typeof currentUser !== 'undefined' && currentUser ? currentUser.id : 'guest');
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
+  // ---- Mia's voice: the browser's built-in text-to-speech (free, no key) ----
+  const TTS = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  let voiceOn = true, voice = null;
+  try { voiceOn = localStorage.getItem('aicVoice') !== '0'; } catch (e) {}
+  function pickVoice() {
+    if (!TTS) return;
+    const all = speechSynthesis.getVoices();
+    if (!all.length) return;
+    const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+    const pool = all.filter(v => v.lang && v.lang.toLowerCase().startsWith(lang));
+    const list = pool.length ? pool : all.filter(v => /^en/i.test(v.lang));
+    voice = list.find(v => /(natural|neural|aria|jenny|samantha|zira|sonia|libby|karen|moira|tessa|victoria|female)/i.test(v.name))
+         || list.find(v => /google/i.test(v.name)) || list[0] || null;
+  }
+  if (TTS) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+  const spokenText = t => t.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\uFE0F\u200D]/gu, '').replace(/\s+/g, ' ').trim();
+  function stopSpeech() { if (TTS) speechSynthesis.cancel(); }
+  function speak(text) {          // resolves when she has finished talking (or after a safety timeout)
+    return new Promise(resolve => {
+      const clean = spokenText(text);
+      if (!TTS || !voiceOn || !clean) return resolve();
+      const u = new SpeechSynthesisUtterance(clean);
+      if (voice) { u.voice = voice; u.lang = voice.lang; }
+      u.rate = 1.02; u.pitch = 1.08;
+      const done = () => { clearTimeout(t); resolve(); };
+      const t = setTimeout(done, clean.length * 95 + 2500);
+      u.onend = done; u.onerror = done;
+      speechSynthesis.speak(u);
+    });
+  }
+
   const st = document.createElement('style');
   st.textContent = `
   #aic{display:none;position:fixed;inset:0;z-index:9500;background:#f6f1f4;flex-direction:column;text-align:left;font-family:inherit;height:100dvh}
@@ -26,6 +57,9 @@
   #aic-form{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid #eee}
   #aic-input{flex:1;margin:0;max-width:none;padding:11px 14px;border-radius:99px;border:1px solid #ddd;font-size:16px}
   #aic-send{width:46px;max-width:none;margin:0;padding:0;border-radius:50%;background:#ff4d8d;color:#fff;border:0;font-size:18px}
+  #aic-mic{width:46px;max-width:none;margin:0;padding:0;border-radius:50%;background:#7b61ff;color:#fff;border:0;font-size:18px}
+  #aic-mic.on{background:#e53935;animation:aicd 1s infinite}
+  #aic .h button+button{margin-left:2px}
   #aic-note{text-align:center;font-size:12px;color:#888;padding:4px 10px 0}`;
   document.head.appendChild(st);
 
@@ -33,16 +67,17 @@
   ov.id = 'aic';
   ov.innerHTML = `<div class="h"><button id="aic-back" aria-label="Back">←</button><div class="av">M</div>
     <div style="flex:1"><b>${NAME}</b><span class="tag">AI</span><br><small>AI companion · here to chat</small></div>
-    <button id="aic-clear" aria-label="Clear chat" title="Clear chat">🗑</button></div>
+    <button id="aic-voice" aria-label="Voice on or off" title="Voice on/off">🔊</button><button id="aic-clear" aria-label="Clear chat" title="Clear chat">🗑</button></div>
     <div id="aic-note">${NAME} is an AI. Don't share passwords or money details.</div>
     <div id="aic-list" aria-live="polite"></div>
-    <div id="aic-form"><input id="aic-input" placeholder="Message ${NAME}…" maxlength="500" autocomplete="off"><button id="aic-send" aria-label="Send">➤</button></div>`;
+    <div id="aic-form"><input id="aic-input" placeholder="Message ${NAME}…" maxlength="500" autocomplete="off"><button id="aic-mic" aria-label="Talk to Mia" title="Talk" style="display:none">🎤</button><button id="aic-send" aria-label="Send">➤</button></div>`;
   document.body.appendChild(ov);
 
   function bubble(text, cls) {
     const b = document.createElement('div');
     b.className = 'aicb ' + cls;
     b.textContent = text;
+    if (cls === 'bot') { b.style.cursor = 'pointer'; b.title = 'Tap to hear this'; b.onclick = () => { stopSpeech(); speak(text); }; }
     $('aic-list').appendChild(b);
     $('aic-list').scrollTop = $('aic-list').scrollHeight;
     return b;
@@ -69,6 +104,7 @@
   async function send() {
     const input = $('aic-input'), text = input.value.trim();
     if (!text || busy) return;
+    stopSpeech();
     busy = true; input.value = '';
     hist.push({ role: 'user', content: text }); save();
     bubble(text, 'me');
@@ -91,7 +127,8 @@
         dots.remove();
         bubble(parts[i], 'bot');
         hist.push({ role: 'assistant', content: parts[i] });
-        if (i < parts.length - 1) { await wait(350); dots = typing(); }
+        await speak(parts[i]);                       // she says it out loud before the next message
+        if (i < parts.length - 1) { await wait(250); dots = typing(); }
       }
       save();
     } catch (err) {
@@ -104,8 +141,33 @@
 
   $('aic-send').onclick = send;
   $('aic-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); send(); } });
-  $('aic-back').onclick = () => { ov.style.display = 'none'; };
+  $('aic-back').onclick = () => { stopSpeech(); ov.style.display = 'none'; };
   $('aic-clear').onclick = () => { if (confirm('Clear this chat with ' + NAME + '?')) { hist = []; save(); open(); } };
+  // speaker switch (also "unlocks" speech on iPhones, which need a tap first)
+  const vbtn = $('aic-voice');
+  const paintVoice = () => { vbtn.textContent = voiceOn ? '🔊' : '🔇'; if (!TTS) vbtn.style.display = 'none'; };
+  vbtn.onclick = () => { voiceOn = !voiceOn; try { localStorage.setItem('aicVoice', voiceOn ? '1' : '0'); } catch (e) {} if (!voiceOn) stopSpeech(); paintVoice(); };
+  paintVoice();
+
+  // talk instead of type (Chrome, Edge, Safari)
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) {
+    const mic = $('aic-mic');
+    mic.style.display = 'block';
+    let rec = null;
+    mic.onclick = () => {
+      if (rec) { rec.stop(); return; }
+      stopSpeech();
+      rec = new SR();
+      rec.lang = navigator.language || 'en-US';
+      rec.interimResults = true;
+      rec.onresult = e => { $('aic-input').value = Array.from(e.results).map(r => r[0].transcript).join(' '); };
+      rec.onend = () => { rec = null; mic.classList.remove('on'); if ($('aic-input').value.trim()) send(); };
+      rec.onerror = () => { rec = null; mic.classList.remove('on'); };
+      mic.classList.add('on');
+      rec.start();
+    };
+  }
   window.openAiCompanion = open;
 
   // pinned entry at the top of the Messages screen
