@@ -1,9 +1,13 @@
 // AI companion ("Mia"): warm, human-sounding chat that is always honest about being an AI.
-// Needs an ANTHROPIC_API_KEY environment variable (set it in the Render dashboard / your .env, never in client code).
+// Needs ONE of these environment variables (set it in the Render dashboard / your .env, never in client code):
+//   ANTHROPIC_API_KEY  -> uses Claude (paid, needs credits)
+//   GEMINI_API_KEY     -> uses Google Gemini (has a free tier from aistudio.google.com)
+// If both are set, Claude is used. Set AI_PROVIDER=gemini to force Gemini.
 const express = require("express");
 const router = express.Router();
 
 const MODEL = process.env.AI_MODEL || "claude-sonnet-5-5";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const NAME = process.env.AI_PERSONA_NAME || "Mia";
 
 const SYSTEM = `You are ${NAME}, a warm, friendly AI companion inside the LoveConnect app.
@@ -35,8 +39,47 @@ function limited(id) {
   return false;
 }
 
+function provider() {
+  const want = (process.env.AI_PROVIDER || "").toLowerCase();
+  if (want === "gemini" && process.env.GEMINI_API_KEY) return "gemini";
+  if (want === "claude" && process.env.ANTHROPIC_API_KEY) return "claude";
+  if (process.env.ANTHROPIC_API_KEY) return "claude";
+  if (process.env.GEMINI_API_KEY) return "gemini";
+  return null;
+}
+
+async function askClaude(msgs) {
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: MODEL, max_tokens: 350, system: SYSTEM, messages: msgs })
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error("Claude " + r.status + ": " + (data && data.error && data.error.message));
+  return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+}
+
+async function askGemini(msgs) {
+  const generationConfig = { maxOutputTokens: 400, temperature: 0.9 };
+  if (/flash/i.test(GEMINI_MODEL)) generationConfig.thinkingConfig = { thinkingBudget: 0 };   // short chat replies, no hidden "thinking" tokens
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(GEMINI_MODEL) + ":generateContent", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM }] },
+      contents: msgs.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+      generationConfig
+    })
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error("Gemini " + r.status + ": " + (data && data.error && data.error.message));
+  const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+  return parts.map(p => p.text || "").join("").trim();
+}
+
 router.post("/chat", async (req, res) => {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const which = provider();
+  if (!which) {
     return res.status(503).json({ message: `${NAME} isn't set up yet. Ask the app owner to add the AI key.` });
   }
   if (limited(String(req.userId))) {
@@ -53,24 +96,10 @@ router.post("/chat", async (req, res) => {
   }
 
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({ model: MODEL, max_tokens: 350, system: SYSTEM, messages: msgs })
-    });
-    const data = await r.json();
-    if (!r.ok) {
-      console.error("AI error:", r.status, data && data.error && data.error.message);
-      return res.status(502).json({ message: `${NAME} is having trouble right now. Try again in a moment.` });
-    }
-    const reply = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+    const reply = which === "gemini" ? await askGemini(msgs) : await askClaude(msgs);
     res.json({ name: NAME, reply: reply || "…" });
   } catch (err) {
-    console.error("AI request failed:", err.message);
+    console.error("AI request failed (" + which + "):", err.message);
     res.status(502).json({ message: `${NAME} is having trouble right now. Try again in a moment.` });
   }
 });
