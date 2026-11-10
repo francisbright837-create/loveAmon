@@ -91,6 +91,9 @@ router.post("/chat", async (req, res) => {
     .filter(m => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .map(m => ({ role: m.role, content: m.content.trim().slice(0, 1500) }));
   while (msgs.length && msgs[0].role !== "user") msgs.shift();            // the API needs to start with the user
+  for (let i = msgs.length - 1; i > 0; i--) {                              // join back-to-back messages from the same side
+    if (msgs[i].role === msgs[i - 1].role) { msgs[i - 1].content += "\n" + msgs[i].content; msgs.splice(i, 1); }
+  }
   if (!msgs.length || msgs[msgs.length - 1].role !== "user") {
     return res.status(400).json({ message: "Say something first 🙂" });
   }
