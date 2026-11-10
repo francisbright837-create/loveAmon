@@ -111,15 +111,20 @@
     let dots = typing();
     const started = Date.now();
     try {
+      const ctl = new AbortController();
+      const killer = setTimeout(() => ctl.abort(), 60000);          // a sleeping server can take a while to wake up
       const res = await fetch(API_URL + '/ai/chat', {
-        method: 'POST',
+        method: 'POST', signal: ctl.signal,
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ messages: hist.slice(-20) })
       });
-      if (typeof handleAuthFailure === 'function' && handleAuthFailure(res.status)) { dots.remove(); busy = false; return; }
-      const data = await res.json();
+      clearTimeout(killer);
+      if (res.status === 401) throw new Error('Your login expired. Please log in again.');
+      let data;
+      try { data = await res.json(); } catch (e) { throw new Error('The server sent an unexpected answer (' + res.status + '). Try again in a minute.'); }
       if (!res.ok) throw new Error(data.message || 'Something went wrong');
-      const parts = String(data.reply).split(/\n\s*\n+/).map(s => s.trim()).filter(Boolean).slice(0, 3);
+      const parts = String(data.reply || '').split(/\n\s*\n+/).map(s => s.trim()).filter(Boolean).slice(0, 3);
+      if (!parts.length) throw new Error(NAME + " didn't have anything to say. Try again.");
       for (let i = 0; i < parts.length; i++) {
         // like a person typing: a pause that grows with the length of what she is about to send
         const delay = Math.min(2600, 600 + parts[i].length * 28) - (i === 0 ? Date.now() - started : 0);
@@ -132,8 +137,9 @@
       }
       save();
     } catch (err) {
+      console.error('Mia chat error:', err);
       dots.remove();
-      bubble(err.message, 'sys');
+      bubble(err.name === 'AbortError' ? 'Mia took too long to answer. Please try again.' : err.message, 'sys');
     }
     busy = false;
     $('aic-input').focus();
