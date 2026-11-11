@@ -103,7 +103,8 @@ router.post("/chat", async (req, res) => {
     res.json({ name: NAME, reply: reply || "…" });
   } catch (err) {
     console.error("AI request failed (" + which + "):", err.message);
-    res.status(502).json({ message: `${NAME} is having trouble right now. Try again in a moment.` });
+    // set AI_DEBUG=1 in your environment to see the real reason inside the chat (remove it afterwards)
+    res.status(502).json({ message: `${NAME} is having trouble right now. Try again in a moment.`, detail: process.env.AI_DEBUG ? err.message : undefined });
   }
 });
 

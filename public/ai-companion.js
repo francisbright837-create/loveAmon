@@ -122,7 +122,7 @@
       if (res.status === 401) throw new Error('Your login expired. Please log in again.');
       let data;
       try { data = await res.json(); } catch (e) { throw new Error('The server sent an unexpected answer (' + res.status + '). Try again in a minute.'); }
-      if (!res.ok) throw new Error(data.message || 'Something went wrong');
+      if (!res.ok) throw new Error((data.message || 'Something went wrong') + (data.detail ? ' [' + data.detail + ']' : ''));
       const parts = String(data.reply || '').split(/\n\s*\n+/).map(s => s.trim()).filter(Boolean).slice(0, 3);
       if (!parts.length) throw new Error(NAME + " didn't have anything to say. Try again.");
       for (let i = 0; i < parts.length; i++) {
