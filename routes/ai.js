@@ -7,7 +7,9 @@ const express = require("express");
 const router = express.Router();
 
 const MODEL = process.env.AI_MODEL || "claude-sonnet-5-5";
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+// Google retires Gemini models over time. We try your GEMINI_MODEL first (if set), then these, and remember the one that works.
+const GEMINI_MODELS = (process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : []).concat(["gemini-3.8-flash", "gemini-flash-latest"]);
+let workingGemini = null;
 const NAME = process.env.AI_PERSONA_NAME || "Mia";
 
 const SYSTEM = `You are ${NAME}, a warm, friendly AI companion inside the LoveConnect app.
@@ -59,10 +61,10 @@ async function askClaude(msgs) {
   return (data.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
 }
 
-async function askGemini(msgs) {
-  const generationConfig = { maxOutputTokens: 400, temperature: 0.9 };
-  if (/flash/i.test(GEMINI_MODEL)) generationConfig.thinkingConfig = { thinkingBudget: 0 };   // short chat replies, no hidden "thinking" tokens
-  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(GEMINI_MODEL) + ":generateContent", {
+async function askGeminiOnce(model, msgs) {
+  const generationConfig = { maxOutputTokens: /2\.5/.test(model) ? 400 : 1024, temperature: 0.9 };
+  if (/2\.5.*flash/i.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };   // short chat replies on the older 2.5 models
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
     body: JSON.stringify({
@@ -72,9 +74,26 @@ async function askGemini(msgs) {
     })
   });
   const data = await r.json();
-  if (!r.ok) throw new Error("Gemini " + r.status + ": " + (data && data.error && data.error.message));
+  if (!r.ok) throw new Error("Gemini " + r.status + " (" + model + "): " + (data && data.error && data.error.message));
   const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
   return parts.map(p => p.text || "").join("").trim();
+}
+
+async function askGemini(msgs) {
+  const order = workingGemini ? [workingGemini] : GEMINI_MODELS;
+  let lastErr;
+  for (const model of order) {
+    try {
+      const reply = await askGeminiOnce(model, msgs);
+      workingGemini = model;
+      return reply;
+    } catch (err) {
+      lastErr = err;
+      if (!/Gemini 404/.test(err.message)) throw err;        // only move on to the next model if this one is gone
+      workingGemini = null;
+    }
+  }
+  throw lastErr;
 }
 
 router.post("/chat", async (req, res) => {
