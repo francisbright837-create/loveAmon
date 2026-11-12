@@ -113,11 +113,18 @@
     try {
       const ctl = new AbortController();
       const killer = setTimeout(() => ctl.abort(), 60000);          // a sleeping server can take a while to wake up
-      const res = await fetch(API_URL + '/ai/chat', {
+      const call = () => fetch(API_URL + '/ai/chat', {
         method: 'POST', signal: ctl.signal,
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ messages: hist.slice(-20) })
       });
+      let res;
+      try { res = await call(); }
+      catch (netErr) {                                              // the server may be asleep or restarting: wait and try once more
+        if (netErr.name === 'AbortError') throw netErr;
+        await wait(5000);
+        try { res = await call(); } catch (e2) { throw new Error("Can't reach the server right now. Check your internet and try again in a moment."); }
+      }
       clearTimeout(killer);
       if (res.status === 401) throw new Error('Your login expired. Please log in again.');
       let data;
