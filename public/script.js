@@ -1841,7 +1841,7 @@ async function loadMapUsers() {
 
 // ==================== WORLD (big town: houses, cars, places to visit) ====================
 
-const WORLD_W = 2400;
+const WORLD_W = 3600;   // the town grew eastward (mall + cinema). Must match sockets/world.js
 const WORLD_H = 1600;  // must match server.js
 const WORLD_PAD = 24;
 
@@ -2057,9 +2057,10 @@ function worldEventPoint(e) {
 
 function worldPointToTarget(e) {
   const p = worldEventPoint(e);
+  const B = (worldRoom !== 'town' && window.W3 && W3.getRoom) ? W3.getRoom(worldRoom) : { w: WORLD_W, h: WORLD_H };   // inside a building the room is the limit
   worldTarget = {
-    x: Math.min(WORLD_W - WORLD_PAD, Math.max(WORLD_PAD, p.x)),
-    y: Math.min(WORLD_H - WORLD_PAD, Math.max(WORLD_PAD, p.y))
+    x: Math.min(B.w - WORLD_PAD, Math.max(WORLD_PAD, p.x)),
+    y: Math.min(B.h - WORLD_PAD, Math.max(WORLD_PAD, p.y))
   };
 }
 
@@ -2464,6 +2465,7 @@ const WORLD_DECOR = (() => {
 })();
 
 function worldBlocked(x, y) {
+  if (worldRoom !== 'town' && window.worldRoomBlocked) return window.worldRoomBlocked(x, y);   // furniture + walls of the room you are in
   for (const r of WORLD_SOLIDS) {
     if (x > r.x - 12 && x < r.x + r.w + 12 && y > r.y - 8 && y < r.y + r.h + 14) return true;
   }
@@ -2798,6 +2800,7 @@ function worldPortalTick() {
   const me = worldUsers[currentUser.id];
   const prompt = document.getElementById('world-portal-prompt');
   if (!me || !prompt || fortressOpen) return;
+  if (worldRoom !== 'town') { prompt.style.display = 'none'; worldPortalPromptId = null; return; }   // portals only exist outside
 
   const near = worldActivePortals().find(p => Math.hypot(p.x - me.x, p.y - me.y) < 75 && !worldUsedPortals.has(p.id));
   if (!near) {
