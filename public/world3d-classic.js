@@ -1,4 +1,4 @@
-/* 3D town (v2). Draws your existing World with three.js and adds:
+/* 3D town (v2, future-city skin). Draws your existing World with three.js and adds:
    - a bigger town (new east district with a shopping mall and a movie theater, 6 more homes)
    - rooms you can walk into (homes, café, mall, cinema) - each one is a server "room"
    - customisable characters (boy / girl, hair, clothes, hat) and pets that follow you
@@ -385,14 +385,15 @@
 
   /* ================= THE TOWN ================= */
   const addT = o => town.add(o);
-  function flat(x, y, w, h, color, lift) {
-    const m = new T.Mesh(new T.PlaneGeometry(w / S, h / S), M(color)); m.rotation.x = -Math.PI / 2;
+  function flat(x, y, w, h, color, lift, o) {
+    const m = new T.Mesh(new T.PlaneGeometry(w / S, h / S), M(color, o)); m.rotation.x = -Math.PI / 2;
     m.position.set((x + w / 2) / S, lift, (y + h / 2) / S); m.receiveShadow = true; addT(m); return m;
   }
   function tree(x, z, k, kind) {
     const g = new T.Group(); g.position.set(x, 0, z);
-    const hue = kind === 'pine' ? 0x2f7d46 : [0x3f9b4d, 0x4aa957, 0x35893f][hash(x + ':' + z) % 3];
-    add(g, GEO.cyl, M(0x7a5233), 0, .7 * k, 0, true).scale.set(.18 * k, 1.4 * k, .18 * k);
+    const hue = kind === 'pine' ? 0x3f9a63 : [0x4fae6b, 0x5cbb78, 0x459e5f][hash(x + ':' + z) % 3];
+    box(g, 1.1 * k, .3 * k, 1.1 * k, 0xf2f5f7, 0, .15 * k, 0);            // white planter
+    add(g, GEO.cyl, M(0xd8d3c8), 0, .7 * k, 0, true).scale.set(.18 * k, 1.4 * k, .18 * k);
     if (kind === 'pine') { add(g, GEO.cone, M(hue), 0, 1.7 * k, 0).scale.set(.85 * k, 1.5 * k, .85 * k); add(g, GEO.cone, M(hue), 0, 2.5 * k, 0).scale.set(.6 * k, 1.2 * k, .6 * k); }
     else add(g, GEO.sph, M(hue), 0, 2 * k, 0).scale.set(.95 * k, .85 * k, .95 * k);
     addT(g);
@@ -415,17 +416,29 @@
     addT(g);
   }
   function building(b) {
-    const fw = b.w / S, fd = (b.h + b.roofH) / S, cx = (b.x + b.w / 2) / S, cz = (b.y - b.roofH + (b.h + b.roofH) / 2) / S;
-    const wh = b.wh || (b.roof === 'tri' ? 2.7 : 3.5), g = new T.Group(); addT(g);
-    box(g, fw, wh, fd, b.color, cx, wh / 2, cz);
-    if (b.roof === 'tri') { const r = add(g, GEO.cone, M(b.roofColor), cx, wh + .85, cz); r.geometry = new T.ConeGeometry(1, 1.7, 4); r.rotation.y = Math.PI / 4; r.scale.set(fw / 1.4142 * 1.08, 1, fd / 1.4142 * 1.08); }
-    else { box(g, fw + .3, .3, fd + .3, b.roofColor, cx, wh + .15, cz); box(g, fw, .5, .12, b.roofColor, cx, wh + .5, cz + fd / 2); }
-    const fz = cz + fd / 2 + .04;
-    box(g, .8, 1.5, .1, 0x6b3f20, cx, .75, fz); box(g, .08, .08, .06, 0xffd23f, cx + .26, .75, fz + .06);
-    const glass = { emissive: 0x6aa6d8, emissiveIntensity: .35 };
-    if (b.roof === 'tri') [-1, 1].forEach(s => box(g, .7, .7, .08, 0xcfe8ff, cx + s * fw * .3, 1.7, fz, glass));
-    else box(g, fw * .7, .9, .08, 0xcfe8ff, cx, 1.5, fz + .02, glass);
-    if (b.label) { const l = textSprite((b.sign ? b.sign + ' ' : '') + b.label, .55); l.position.set(cx, wh + (b.roof === 'tri' ? 2.6 : 1.25), cz + fd / 2); g.add(l); }
+    // future-city skin: pale curved shaft + glass band + garden terraces + crown
+    const fw = b.w / S, cx = (b.x + b.w / 2) / S, cz = (b.y + b.h / 2) / S;
+    const g = new T.Group(); addT(g);
+    const tall = b.label === 'Shopping Mall' || b.label === 'Cinema';
+    const H = tall ? 10 + fw * 2 : 4 + fw * 1.2;
+    const white = { roughness: .35, metalness: .15 };
+    const shaft = add(g, GEO.cyl, M(0xf4f7f9, white), cx, H / 2, cz); shaft.scale.set(fw * .45, H, fw * .45);
+    const band = add(g, GEO.cyl, M(0xbfe0ee, { roughness: .1, metalness: .4, transparent: true, opacity: .85, emissive: 0x7fc4de, emissiveIntensity: .15 }), cx, H * .62, cz);
+    band.scale.set(fw * .47, H * .5, fw * .47);
+    for (let i = 1; i <= 3; i++) {
+      const t = add(g, GEO.cyl, M(0x6fbf82, { roughness: .9 }), cx, H * .25 * i, cz);
+      t.scale.set(fw * (.62 - i * .06), .18, fw * (.62 - i * .06));
+    }
+    const crown = add(g, GEO.dome, M(0xe8f4f8, white), cx, H, cz); crown.scale.set(fw * .4, fw * .3, fw * .4);
+    if (tall) [-1, 1].forEach(s => {
+      const arc = add(g, GEO.cyl, M(0xf4f7f9, white), cx + s * fw * .7, H * .4, cz + fw * .3);
+      arc.scale.set(fw * .18, H * .8, fw * .18); arc.rotation.z = s * .12;
+    });
+    // glass door (the door mat logic in world-ui.js stays exactly the same)
+    const fz = cz + fw * .45 + .04;
+    box(g, 1, 1.8, .1, 0x9fd4e8, cx, .9, fz, { emissive: 0x6fc0dd, emissiveIntensity: .3, transparent: true, opacity: .9 });
+    box(g, 1.6, .03, .9, 0x2e9e6a, cx, .04, fz + .5, { emissive: 0x2e9e6a, emissiveIntensity: .35 });
+    if (b.label) { const l = textSprite((b.sign ? b.sign + ' ' : '') + b.label, .55); l.position.set(cx, H + fw * .35 + .6, cz + fw * .4); g.add(l); }
   }
 
   function init() {
@@ -434,24 +447,25 @@
     const stage = document.getElementById('world-stage'); c2 = document.getElementById('world-canvas');
     stage.insertBefore(c3, c2); c2.style.cssText += ';position:absolute;left:0;top:0;z-index:1';
     R = new T.WebGLRenderer({ canvas: c3, antialias: true }); R.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    R.shadowMap.enabled = true; R.shadowMap.type = T.PCFSoftShadowMap; R.outputEncoding = T.sRGBEncoding; R.toneMapping = T.ACESFilmicToneMapping; R.toneMappingExposure = .95;
-    scene = new T.Scene(); scene.background = new T.Color(0xa6dcff); scene.fog = new T.Fog(0xcdeaff, 38, 95);
+    R.shadowMap.enabled = true; R.shadowMap.type = T.PCFSoftShadowMap; R.outputEncoding = T.sRGBEncoding; R.toneMapping = T.ACESFilmicToneMapping; R.toneMappingExposure = 1.05;
+    scene = new T.Scene(); scene.background = new T.Color(0xdcebf4); scene.fog = new T.Fog(0xdcebf4, 45, 115);
     cam = new T.PerspectiveCamera(52, 1, .1, 200);
-    hemi = new T.HemisphereLight(0xe8f4ff, 0x6f8a5a, .62); scene.add(hemi);
-    sun = new T.DirectionalLight(0xfff1d0, .8); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+    hemi = new T.HemisphereLight(0xf6fbff, 0xc4d9c6, .85); scene.add(hemi);
+    sun = new T.DirectionalLight(0xffffff, .9); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera; sc.left = sc.bottom = -30; sc.right = sc.top = 30; sc.near = 1; sc.far = 120; scene.add(sun, sun.target);
     town = new T.Group(); scene.add(town);
 
-    const base = new T.Mesh(new T.PlaneGeometry(WORLD_W / S + 40, WORLD_H / S + 40), M(0x8fd18a)); base.rotation.x = -Math.PI / 2; base.position.set(WORLD_W / S / 2, -.01, WORLD_H / S / 2); base.receiveShadow = true; addT(base);
-    flat(0, 0, WORLD_W, WORLD_H, 0x8fd18a, 0); flat(60, 60, 980, 620, 0xa3e29a, .01); flat(1340, 60, 1000, 620, 0xe9d9bf, .01); flat(1340, 960, 1000, 580, 0xa6e29a, .01);
-    flat(60, 960, 980, 385, 0xf3e2b3, .01); flat(1040, 680, 320, 280, 0xd9d4c7, .02);
-    flat(2340, 60, 1200, 620, 0xe9d9bf, .01); flat(2340, 960, 1200, 580, 0xa6e29a, .01); flat(2440, 700, 1060, 60, 0xd9d4c7, .02); flat(2540, 860, 220, 140, 0xd9d4c7, .02);
-    flat(0, 760, WORLD_W, 120, 0x4a4a55, .03); flat(1140, 0, 120, WORLD_H, 0x4a4a55, .03);
-    for (let x = 0; x < WORLD_W; x += 56) { if (x > 1100 && x < 1280) continue; flat(x, 818, 30, 4, 0xf2f2f2, .04); }
-    for (let y = 0; y < WORLD_H; y += 56) { if (y > 730 && y < 900) continue; flat(1198, y, 4, 30, 0xf2f2f2, .04); }
-    const sg = new T.PlaneGeometry(1140 / S, 260 / S, 28, 7); sea = new T.Mesh(sg, M(0x3fa9dc, { transparent: true, opacity: .93, roughness: .25, metalness: .1 }));
+    const base = new T.Mesh(new T.PlaneGeometry(WORLD_W / S + 40, WORLD_H / S + 40), M(0xcfe0cf)); base.rotation.x = -Math.PI / 2; base.position.set(WORLD_W / S / 2, -.01, WORLD_H / S / 2); base.receiveShadow = true; addT(base);
+    flat(0, 0, WORLD_W, WORLD_H, 0xcfe0cf, 0); flat(60, 60, 980, 620, 0xdcebe0, .01); flat(1340, 60, 1000, 620, 0xe8ecef, .01); flat(1340, 960, 1000, 580, 0xdcebe0, .01);
+    flat(60, 960, 980, 385, 0xefe6cf, .01); flat(1040, 680, 320, 280, 0xdfe3e8, .02);
+    flat(2340, 60, 1200, 620, 0xe8ecef, .01); flat(2340, 960, 1200, 580, 0xdcebe0, .01); flat(2440, 700, 1060, 60, 0xdfe3e8, .02); flat(2540, 860, 220, 140, 0xdfe3e8, .02);
+    flat(0, 760, WORLD_W, 120, 0xd9dee4, .03); flat(1140, 0, 120, WORLD_H, 0xd9dee4, .03);
+    const lane = { emissive: 0x9fe8ff, emissiveIntensity: .8 };
+    for (let x = 0; x < WORLD_W; x += 56) { if (x > 1100 && x < 1280) continue; flat(x, 818, 30, 4, 0xf2f2f2, .04, lane); }
+    for (let y = 0; y < WORLD_H; y += 56) { if (y > 730 && y < 900) continue; flat(1198, y, 4, 30, 0xf2f2f2, .04, lane); }
+    const sg = new T.PlaneGeometry(1140 / S, 260 / S, 28, 7); sea = new T.Mesh(sg, M(0x5fb6e8, { transparent: true, opacity: .9, roughness: .15, metalness: .15 }));
     sea.rotation.x = -Math.PI / 2; sea.position.set(570 / S, .03, 1470 / S); addT(sea); seaBase = Float32Array.from(sg.attributes.position.array);
-    [[130, 0x7ec8ef, .035], [112, 0x58b9ea, .04]].forEach(([r, c, y]) => { const p = new T.Mesh(new T.CircleGeometry(1, 40), M(c)); p.rotation.x = -Math.PI / 2; p.scale.set(r / S, 72 / 125 * r / S, 1); p.position.set(500 / S, y, 330 / S); addT(p); });
+    [[150, 0x9adcf5, .035], [126, 0x74c9ef, .04]].forEach(([r, c, y]) => { const p = new T.Mesh(new T.CircleGeometry(1, 40), M(c)); p.rotation.x = -Math.PI / 2; p.scale.set(r / S, 72 / 125 * r / S, 1); p.position.set(500 / S, y, 330 / S); addT(p); });
     WORLD_BUILDINGS.forEach(building);
     WORLD_DECOR.forEach(d => {
       const x = d.x / S, z = d.y / S, k = d.s / 56;
@@ -470,7 +484,7 @@
     if (id !== 'town') { if (!interiors[id]) interiors[id] = buildRoomMeshes(id); }
     town.visible = id === 'town';
     Object.keys(interiors).forEach(k => { interiors[k].visible = k === id; });
-    if (id === 'town') { scene.background.setHex(0xa6dcff); scene.fog.color.setHex(0xcdeaff); scene.fog.near = 38; scene.fog.far = 95; hemi.intensity = .62; sun.intensity = .8; }
+    if (id === 'town') { scene.background.setHex(0xdcebf4); scene.fog.color.setHex(0xdcebf4); scene.fog.near = 45; scene.fog.far = 115; hemi.intensity = .85; sun.intensity = .9; }
     else { scene.background.setHex(0x17141d); scene.fog.color.setHex(0x17141d); scene.fog.near = 60; scene.fog.far = 200; hemi.intensity = .68; sun.intensity = .5; }
     curRoom = id; camSnap = true; yaw = 0;
     Object.values(avatars).forEach(A => { if (A.pet) A.pet.pos = null; });
