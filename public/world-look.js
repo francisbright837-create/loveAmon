@@ -54,8 +54,14 @@
     const row = h('div', { className: 'lk-row' }, h('div', { className: 'lk-label', textContent: label }));
     const box = h('div', { className: 'lk-pills' });
     LK.OPTIONS[key].forEach(opt => {
-      const b = h('button', { className: 'lk-pill' + (working[key] === opt ? ' on' : ''), textContent: LABELS[key][opt] || opt });
-      b.onclick = () => { working[key] = opt; preview(); };
+      // items that cost coins stay locked until they are bought in the Shopping Mall (see world-interact.js)
+      const shop = window.W3Shop, locked = !!shop && !shop.owned(key, opt) && working[key] !== opt;
+      const b = h('button', { className: 'lk-pill' + (working[key] === opt ? ' on' : ''), textContent: (locked ? '🔒 ' : '') + (LABELS[key][opt] || opt) });
+      if (locked) b.style.opacity = '.55';
+      b.onclick = () => {
+        if (locked) { showMessage('🛍️ Buy it in the Shopping Mall · 🪙 ' + shop.price(key, opt)); return; }
+        working[key] = opt; preview();
+      };
       box.append(b);
     });
     row.append(box);
@@ -119,7 +125,7 @@
   function randomLook() {
     const pick = a => a[Math.floor(Math.random() * a.length)];
     const next = {};
-    Object.keys(LK.OPTIONS).forEach(k => { next[k] = pick(LK.OPTIONS[k]); });
+    Object.keys(LK.OPTIONS).forEach(k => { const ok = LK.OPTIONS[k].filter(o => !window.W3Shop || window.W3Shop.owned(k, o)); next[k] = pick(ok.length ? ok : LK.OPTIONS[k]); });   // random never picks items you have not bought
     Object.keys(LK.RANGES).forEach(k => { next[k] = Math.floor(Math.random() * LK.RANGES[k]); });
     working = LK.cleanLook(next);
     preview();

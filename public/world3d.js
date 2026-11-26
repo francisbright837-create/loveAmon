@@ -8,6 +8,8 @@
   let ON = false, started = false, R, scene, cam, sun, c3, c2;
   let yaw = 0, dist = 15, camPos = new T.Vector3(30, 14, 30), camLook = new T.Vector3(30, 1, 20);
   const avatars = {}, parked = [], traffic = [], portals = {}, pickables = [], keys = {};
+  const hooks = {};   // world-interact.js plugs in here (rooms, sitting, shops). Everything is optional and wrapped in try/catch.
+  const safe = (f, a, dflt) => { try { return f ? f(a) : dflt; } catch (e) { console.warn('world hook failed:', e); return dflt; } };
   let keyDriven = false, sea = null, seaBase = null;
   const ray = new T.Raycaster(), plane = new T.Plane(new T.Vector3(0, 1, 0), 0);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -86,7 +88,13 @@
     const d = CARS[e] || CARS['🚗'], g = new T.Group(), w = d.wide ? 1.4 : 1.2;
     box(g, w, d.h, d.len, d.c, 0, .3 + d.h / 2, 0);
     if (d.bus) { box(g, w * 1.02, .55, d.len * .86, 0xbfe3ff, 0, 1.2, 0, { emissive: 0x5a8db8, emissiveIntensity: .25 }); }
-    else { box(g, w * .9, d.cab, d.len * .5, d.c, 0, .3 + d.h + d.cab / 2, d.len * .06); box(g, w * .92, d.cab * .7, d.len * .36, 0xbfe3ff, 0, .3 + d.h + d.cab / 2, d.len * .06, { emissive: 0x5a8db8, emissiveIntensity: .25 }); }
+    else {
+      const cy = .3 + d.h, cz = d.len * .06, cl = d.len * .5, cw = w * .9;
+      box(g, cw, .06, cl, d.c, 0, cy + d.cab, cz);                                                        // roof
+      [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(p => box(g, .07, d.cab, .07, d.c, p[0] * cw / 2, cy + d.cab / 2, cz + p[1] * cl / 2));   // pillars
+      box(g, cw * 1.02, d.cab * .9, cl * .98, 0xbfe3ff, 0, cy + d.cab / 2, cz, { emissive: 0x5a8db8, emissiveIntensity: .2, transparent: true, opacity: .28, depthWrite: false });   // clear windows: you can see the driver
+      box(g, w * .7, .1, .55, 0x30343c, 0, cy + .06, cz + .12); box(g, w * .7, .4, .08, 0x30343c, 0, cy + .25, cz + .42);                     // seat
+    }
     if (d.sign) box(g, .5, .16, .25, 0xffffff, 0, .3 + d.h + d.cab + .1, 0);
     if (d.lights) { box(g, .3, .12, .12, 0xff3b30, -.2, .3 + d.h + d.cab + .08, 0, { emissive: 0xff3b30, emissiveIntensity: 1 }); box(g, .3, .12, .12, 0x2f7bff, .2, .3 + d.h + d.cab + .08, 0, { emissive: 0x2f7bff, emissiveIntensity: 1 }); }
     if (d.wide) box(g, w, .08, .3, 0x222222, 0, .3 + d.h + .35, d.len / 2 - .1);
@@ -95,6 +103,7 @@
     box(g, w * .7, .1, .06, 0xff3b30, 0, .55, d.len / 2, { emissive: 0xff3b30, emissiveIntensity: .6 });
     return g;
   }
+  const carSeatY = e => { const d = CARS[e] || CARS['🚗']; return clamp(.3 + d.h + (d.bus ? 0 : d.cab) - .9, .35, 1.05); };   // pelvis height so the head stays under the roof
   function personLegacy(isMe, id) {
     const R = {}, g = new T.Group(), body = new T.Group(); g.add(body); R.g = g; R.body = body;
     const skin = [0xf1c9a5, 0xd9a577, 0xa8714a, 0x7a4a2c][hash(id) % 4], hair = [0x1b1410, 0x3b2314, 0x6b4423, 0xc9a24b, 0x2a2a35][(hash(id) >> 3) % 5];
@@ -271,19 +280,27 @@
       if (R && R.sig !== sig) { keepHeading = R.heading; removeAvatar(R); R = null; }          // their look changed: build the new character
       if (!R) { R = avatars[u.userId] = person(u.userId === currentUser.id, u.userId, look); R.sig = sig; R.heading = keepHeading; }
       R.seen = true; const g = R.g;
-      g.position.set(u.dx / S, 0, u.dy / S); g.userData.anchor.x = u.dx; g.userData.anchor.y = u.dy;
+      const P = safe(hooks.place, u, null);      // null = normal town behaviour; otherwise {x, z, heading, moving, phase, sit:{y}} in 3D units
+      g.position.set(P ? P.x : u.dx / S, 0, P ? P.z : u.dy / S); g.userData.anchor.x = u.dx; g.userData.anchor.y = u.dy;
       const mx = u.x - u.dx, mz = u.y - u.dy;
-      if (Math.hypot(mx, mz) > .4) R.heading += adiff(R.heading, heading(mx, mz)) * .25;
+      if (P && P.heading !== undefined) R.heading += adiff(R.heading, P.heading) * .3;
+      else if (Math.hypot(mx, mz) > .4) R.heading += adiff(R.heading, heading(mx, mz)) * .25;
       g.rotation.y = R.heading;
-      const dancing = u.emote && u.emote.type === 'dance', ph = (u.phase || 0) * .55, sw = u.moving ? Math.sin(ph) : 0;
+      const mv = P && P.moving !== undefined ? P.moving : u.moving, sit = P && P.sit ? P.sit : null;
+      const dancing = u.emote && u.emote.type === 'dance', ph = ((P && P.phase !== undefined ? P.phase : u.phase) || 0) * .55, sw = mv ? Math.sin(ph) : 0;
       if (u.vehicle) {
         R.cars[u.vehicle] = R.cars[u.vehicle] || makeCar(u.vehicle);
         Object.entries(R.cars).forEach(([e, c]) => { c.visible = e === u.vehicle; if (!c.parent) g.add(c); });
-        R.hips.position.y = 1.05; R.lL.visible = R.rL.visible = false; R.body.scale.setScalar(.8); R.body.position.set(0, 0, .1); R.lA.rotation.x = R.rA.rotation.x = 1.3;
+        R.hips.position.y = carSeatY(u.vehicle); R.lL.visible = R.rL.visible = false; R.body.scale.setScalar(.7); R.body.position.set(0, 0, .1); R.body.rotation.y = 0; R.lA.rotation.x = R.rA.rotation.x = 1.3;
+      } else if (sit) {                                                                    // sitting on a chair, sofa or bench
+        Object.values(R.cars).forEach(c => { c.visible = false; });
+        R.lL.visible = R.rL.visible = true; R.body.scale.setScalar(1); R.body.position.set(0, 0, 0); R.body.rotation.y = 0;
+        R.hips.position.y = sit.y; R.lL.rotation.x = R.rL.rotation.x = 1.45; R.lL.rotation.z = R.rL.rotation.z = 0;
+        R.lA.rotation.x = R.rA.rotation.x = .75; R.lA.rotation.z = -.05; R.rA.rotation.z = .05;
       } else {
         Object.values(R.cars).forEach(c => { c.visible = false; });
         R.lL.visible = R.rL.visible = true; R.body.scale.setScalar(1); R.body.position.set(0, 0, 0);
-        R.hips.position.y = .85 + (u.moving ? -Math.abs(Math.sin(ph)) * .06 : 0) + (dancing ? Math.abs(Math.sin(now / 130)) * .2 : 0);
+        R.hips.position.y = .85 + (mv ? -Math.abs(Math.sin(ph)) * .06 : 0) + (dancing ? Math.abs(Math.sin(now / 130)) * .2 : 0);
         R.lL.rotation.x = sw * .8; R.rL.rotation.x = -sw * .8;
         R.lA.rotation.x = dancing ? 2.6 + Math.sin(now / 110) * .5 : -sw * .7; R.rA.rotation.x = dancing ? 2.6 - Math.sin(now / 110) * .5 : sw * .7;
         R.lA.rotation.z = dancing ? .4 : -.05; R.rA.rotation.z = dancing ? -.4 : .05;
@@ -331,9 +348,11 @@
     // sea waves
     if (sea) { const a = sea.geometry.attributes.position; for (let i = 0; i < a.count; i++) a.setZ(i, Math.sin(t * 1.6 + seaBase[i * 3] * 1.1 + seaBase[i * 3 + 1] * .8) * .07); a.needsUpdate = true; }
     // camera follows me
-    const fx = me ? me.dx / S : 30, fz = me ? me.dy / S : 19, pitch = .95;
+    const cf = safe(hooks.camTarget, null, null), pitch = .95;
+    const fx = cf ? cf.x : (me ? me.dx / S : 30), fz = cf ? cf.z : (me ? me.dy / S : 19);
+    if (cf && cf.maxYaw) yaw = clamp(yaw, -cf.maxYaw, cf.maxYaw);
     const want = new T.Vector3(fx + Math.sin(yaw) * Math.cos(pitch) * dist, Math.sin(pitch) * dist + 1, fz + Math.cos(yaw) * Math.cos(pitch) * dist);
-    camPos.lerp(want, .12); camLook.lerp(new T.Vector3(fx, 1, fz), .2);
+    if (cf && cf.snap) { camPos.copy(want); camLook.set(fx, 1, fz); } else { camPos.lerp(want, .12); camLook.lerp(new T.Vector3(fx, 1, fz), .2); }
     cam.position.copy(camPos); cam.lookAt(camLook);
     sun.position.set(fx - 18, 34, fz - 10); sun.target.position.set(fx, 0, fz);
   }
@@ -342,7 +361,7 @@
     ctx.setTransform(worldDpr, 0, 0, worldDpr, 0, 0); ctx.clearRect(0, 0, worldCssW, worldCssH);
     const proj = (x, y, z) => { const v = new T.Vector3(x, y, z).project(cam); return v.z > 1 ? null : { x: (v.x * .5 + .5) * worldCssW, y: (-v.y * .5 + .5) * worldCssH }; };
     users.forEach(u => {
-      const p = proj(u.dx / S, u.vehicle ? 2.6 : 2.1, u.dy / S); if (!p) return;
+      const P = safe(hooks.place, u, null), p = proj(P ? P.x : u.dx / S, (u.vehicle ? 2.6 : 2.1) - (P && P.sit ? .35 : 0), P ? P.z : u.dy / S); if (!p) return;
       const isMe = u.userId === currentUser.id, img = u.profilePicture ? getWorldImage(u.profilePicture) : null;
       ctx.save(); ctx.setTransform(worldDpr, 0, 0, worldDpr, 0, 0);
       ctx.beginPath(); ctx.arc(p.x, p.y - 24, 15, 0, Math.PI * 2); ctx.fillStyle = isMe ? '#ff4d8d' : '#4d7cff'; ctx.fill();
@@ -384,7 +403,7 @@
     });
     const w = worldCssW, h = worldCssH;
     if (c3.width !== Math.floor(w * R.getPixelRatio()) || c3.height !== Math.floor(h * R.getPixelRatio())) { R.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
-    updateScene(users, t, now); R.render(scene, cam);
+    updateScene(users, t, now); R.render(scene, cam); safe(hooks.frame, now);
     overlay(worldCtx, users, now, t);
   };
   const failed = () => !!window.__w3dFail;
@@ -400,5 +419,9 @@
     if (ray.ray.intersectPlane(plane, p)) return { x: p.x * S, y: p.z * S };
     return origPoint(e);
   };
-  window.W3D = { focus: on => { dist = on ? 8 : 15; }, avatars: () => avatars };
+  window.W3D = {
+    focus: on => { dist = on ? 8 : 15; }, avatars: () => avatars, hooks,
+    api: () => ({ T, S, scene, cam, add, box, M, GEO, textSprite, makeCar, clamp, adiff, heading, ready: ON }),
+    keys: () => keys, yaw: () => yaw, canvas: () => c2, setDist: d => { dist = d; }, getDist: () => dist
+  };
 })();
