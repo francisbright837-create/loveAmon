@@ -1,43 +1,902 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LoveConnect</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>LoveConnect</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { padding-bottom: 80px; margin: 0; }
+    .msg-box {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 15px 25px;
+      border-radius: 10px;
+      font-weight: 500;
+      z-index: 10000;
+      animation: slideDown 0.3s ease;
+      max-width: 90%;
+      text-align: center;
+      font-size: 14px;
+    }
+    .msg-box.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .msg-box.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .msg-box.loading { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    /* Bottom nav bar */
+    .bottom-nav {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #1a3fa0;
+      padding: 10px 0 6px;
+      justify-content: space-around;
+      align-items: center;
+      z-index: 9000;
+    }
+    .bottom-nav button {
+      background: none;
+      border: none;
+      color: #cdd8f5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      font-size: 11px;
+      cursor: pointer;
+      width: auto;
+      margin: 0;
+      padding: 4px 8px;
+      position: relative;
+    }
+    .bottom-nav button.active { color: white; }
+    .bottom-nav .nav-icon { font-size: 22px; }
+    .bottom-nav .plus-btn .nav-icon {
+      background: linear-gradient(135deg, #25f4ee, #ff4d8d);
+      color: white;
+      border-radius: 10px;
+      width: 44px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 2px;
+    }
+    .nav-dot {
+      display: none;
+      position: absolute;
+      top: 0;
+      right: 4px;
+      width: 8px;
+      height: 8px;
+      background: red;
+      border-radius: 50%;
+    }
+
+    .search-bar {
+      max-width: 500px;
+      margin: 0 auto 15px;
+      display: flex;
+      gap: 8px;
+      padding: 15px 15px 0;
+    }
+    .search-bar input {
+      flex: 1;
+      margin: 0;
+      padding: 10px 16px;
+      border-radius: 20px;
+      border: 1px solid #ddd;
+    }
+    .search-result-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px;
+      background: white;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      max-width: 500px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .search-result-item img {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+
+    .conversation-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: white;
+      border-radius: 12px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      text-align: left;
+      max-width: 500px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .conversation-item img {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .comment-item {
+      background: #f5f5f5;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-bottom: 8px;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    /* Full-screen swipeable video feed (native scroll-snap: swipe up/down on phones) */
+    .video-feed-container {
+      position: relative;
+      width: 100%;
+      height: var(--feed-h, calc(100vh - 145px));
+      overflow-y: scroll;
+      overflow-x: hidden;
+      scroll-snap-type: y mandatory;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
+      touch-action: pan-y;
+      scrollbar-width: none;
+      background: black;
+    }
+    .video-feed-container::-webkit-scrollbar { display: none; }
+    .video-slide {
+      position: relative;
+      width: 100%;
+      height: var(--feed-h, calc(100vh - 145px));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+    }
+    /* Home = full-screen video above the bottom nav */
+
+    /* ===== AI tab (feed of AI-generated videos) ===== */
+    #ai-screen{display:none;position:fixed;top:0;left:0;right:0;bottom:70px;background:#0b0f1e;color:#fff;z-index:100;text-align:left}
+    #ai-chips{position:absolute;z-index:5;top:0;left:0;right:0;padding:12px 120px 12px 12px;display:flex;gap:8px;overflow-x:auto;background:linear-gradient(#000a,#0000)}
+    .ai-chip{display:inline-block;width:auto;max-width:none;margin:0;padding:7px 14px;border:0;border-radius:99px;font-size:14px;white-space:nowrap;background:#ffffff26;color:#fff;cursor:pointer}
+    .ai-chip[aria-pressed="true"]{background:#ff4d8d}
+    #ai-add{position:absolute;z-index:6;top:10px;right:10px;display:block;width:auto;max-width:none;margin:0;padding:8px 12px;border:0;border-radius:99px;font-size:14px;background:#ff4d8d;color:#fff}
+    #ai-feed{height:100%;overflow-y:scroll;scroll-snap-type:y mandatory;scrollbar-width:none}
+    #ai-feed::-webkit-scrollbar{display:none}
+    .ai-card{height:var(--ai-h,calc(100vh - 70px));scroll-snap-align:start;scroll-snap-stop:always;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#000}
+    .ai-card video{width:100%;height:100%;object-fit:contain}
+    .ai-badge{position:absolute;top:62px;left:14px;background:#000a;padding:4px 10px;border-radius:6px;font-size:12px}
+    .ai-info{position:absolute;left:0;right:0;bottom:0;padding:18px 78px 22px 16px;background:linear-gradient(#0000,#000c);font-size:14px;text-shadow:0 1px 3px #000a}
+    .ai-info b{display:block;font-size:16px;margin-bottom:4px;cursor:pointer}
+    .ai-info span{color:#b8c3e6;font-size:13px}
+    .ai-rail{position:absolute;right:10px;bottom:90px;display:flex;flex-direction:column;gap:14px;align-items:center}
+    .ai-rail button{display:block;width:48px;height:48px;max-width:none;margin:0;padding:0;border:0;border-radius:50%;background:#0008;font-size:20px;color:#fff}
+    .ai-rail small{display:block;font-size:12px;text-align:center;margin-top:2px}
+    .ai-rail button[aria-pressed="true"]{color:#ff4d8d}
+    .ai-empty{height:100%;display:grid;place-items:center;text-align:center;padding:30px;color:#b8c3e6;line-height:1.5}
+    #ai-upload{display:none;position:absolute;inset:0;z-index:8;background:rgba(5,8,20,.97);flex-direction:column;align-items:center;justify-content:center;padding:20px}
+    #ai-upload h2{margin:0 0 8px}
+    #video-feed-screen {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      bottom: 70px;               /* exact value is set from the real nav height in JS */
+      background: #000;
+      z-index: 100;
+    }
+    .feed-search {
+      position: absolute;
+      top: calc(10px + env(safe-area-inset-top, 0px));
+      left: 10px; right: 10px;
+      z-index: 20;
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .feed-search > * { pointer-events: auto; }
+    .feed-search-btn {
+      width: 44px; height: 44px;
+      flex: none;
+      margin: 0; padding: 0;
+      border-radius: 50%;
+      border: none;
+      background: rgba(0,0,0,0.5);
+      color: white;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .feed-search-bar {
+      display: none;
+      flex: 1;
+      align-items: center;
+      gap: 8px;
+    }
+    /* Camera */
+    .cam-row { display:flex; gap:8px; overflow-x:auto; padding:4px 12px; scrollbar-width:none; }
+    .cam-row::-webkit-scrollbar { display:none; }
+    .cam-chip {
+      flex:none; width:auto; max-width:none; margin:0; padding:7px 13px;
+      border-radius:18px; border:1px solid rgba(255,255,255,0.4);
+      background:rgba(0,0,0,0.45); color:white; font-size:14px;
+    }
+    .cam-chip.on { background:#ff4d8d; border-color:#ff4d8d; }
+    .cam-mode {
+      width:auto; max-width:none; margin:0; padding:6px 12px; border:none;
+      background:transparent; color:rgba(255,255,255,0.65); font-size:15px; font-weight:600;
+    }
+    .cam-mode.on { color:white; border-bottom:2px solid white; border-radius:0; }
+    .cam-shutter {
+      width:72px; height:72px; max-width:none; margin:0; padding:0; flex:none;
+      border-radius:50%; border:4px solid white; background:transparent;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .cam-shutter span { display:block; width:54px; height:54px; border-radius:50%; background:white; transition:all .15s; }
+    .cam-shutter.rec span { width:28px; height:28px; border-radius:6px; background:#e60023; }
+
+    .world-btn {
+      width: auto; max-width: none; margin: 0; padding: 7px 11px;
+      font-size: 14px; border: none; border-radius: 10px;
+      background: rgba(255,255,255,0.92); color: #333;
+    }
+    .dim-act {
+      width: 84px; height: 84px; max-width: none; margin: 0; padding: 0;
+      border-radius: 50%; border: 3px solid rgba(255,255,255,0.85);
+      background: rgba(180,30,60,0.85); color: white; font-size: 34px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .dim-act small { font-size: 13px; line-height: 1; }
+    .hero-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: min(100%, 420px); }
+    .hero-card {
+      width: auto; max-width: none; margin: 0; padding: 10px 8px;
+      border-radius: 14px; border: 2px solid var(--c); background: rgba(255,255,255,0.06); color: white;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+    }
+    .hero-card img { height: 120px; width: auto; }
+    .hero-card b { color: var(--c); font-size: 18px; }
+    .hero-card span { font-size: 12px; opacity: 0.85; line-height: 1.25; }
+    .hero-card:active { transform: scale(0.97); }
+    .dim-act:active { transform: scale(0.92); }
+    /* voice messages + calls */
+    .chat-icon-btn { width: auto; max-width: none; margin: 0; padding: 8px 12px; font-size: 18px; }
+    .chat-audio { display: flex; flex-direction: column; gap: 4px; min-width: 230px; }
+    .chat-audio audio { width: 230px; max-width: 100%; height: 40px; }
+    .chat-audio small { font-size: 12px; opacity: 0.85; text-align: left; }
+    .rec-dot { color: #e60023; animation: recblink 1s infinite; }
+    @keyframes recblink { 50% { opacity: 0.2; } }
+    .call-btn {
+      width: 74px; height: 74px; max-width: none; margin: 0; padding: 0; border-radius: 50%; border: none;
+      background: rgba(255,255,255,0.18); color: white; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    }
+    .call-btn span { font-size: 26px; line-height: 1; }
+    .call-btn small { font-size: 11px; }
+    .call-btn.green { background: #1fbf5b; }
+    .call-btn.red { background: #e5233b; }
+    .call-btn.off { background: rgba(255,255,255,0.45); color: #333; }
+    #call-screen.video-live #call-info { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); left: 14px; align-items: flex-start; padding: 0; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+    #call-screen.video-live #call-avatar { display: none; }
+    #call-screen.video-live #call-name { font-size: 18px; margin: 0; }
+    #call-screen.video-live #call-status { font-size: 14px; }
+    /* chat: photos, videos, documents, location, groups */
+    .chat-media { display: block; max-width: 100%; width: 240px; border-radius: 10px; cursor: pointer; background: #000; }
+    .chat-bubble-media { padding: 5px !important; }
+    .chat-doc, .chat-loc {
+      display: flex; align-items: center; gap: 10px; min-width: 190px; max-width: 260px;
+      padding: 8px; border-radius: 8px; background: rgba(255,255,255,0.35); color: inherit; text-decoration: none;
+    }
+    .attach-opt {
+      display: block; width: 100%; max-width: none; margin: 0; padding: 14px 18px; border: none; border-radius: 0;
+      background: none; color: #333; font-size: 15px; text-align: left; cursor: pointer;
+    }
+    .attach-opt:hover { background: #ffe6f0; }
+    .friend-row {
+      display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px;
+      background: #fff; margin-bottom: 6px; cursor: pointer;
+    }
+    .friend-row img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
+    .feed-search-bar input {
+      flex: 1; min-width: 0;
+      max-width: none;
+      margin: 0;
+      padding: 11px 16px;
+      border-radius: 22px;
+      border: none;
+    }
+    #search-results {
+      display: none;
+      position: absolute;
+      top: calc(64px + env(safe-area-inset-top, 0px));
+      left: 10px; right: 10px;
+      max-height: 55%;
+      overflow-y: auto;
+      background: white;
+      border-radius: 14px;
+      padding: 6px;
+      text-align: left;
+      z-index: 20;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+    }
+
+    .video-slide video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: black;
+    }
+    .slide-top {
+      position: absolute;
+      top: 18px;
+      left: 15px;
+      right: 70px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: white;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+    }
+    .slide-top strong { cursor: pointer; }
+    .slide-follow-btn {
+      width: auto;
+      padding: 4px 12px;
+      font-size: 12px;
+      border-radius: 14px;
+      margin: 0;
+      background: #ff4d8d;
+      color: white;
+      border: none;
+    }
+    .slide-caption {
+      position: absolute;
+      bottom: 20px;
+      left: 15px;
+      right: 80px;
+      color: white;
+      font-size: 14px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+    }
+    .slide-actions {
+      position: absolute;
+      right: 10px;
+      bottom: 60px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .slide-actions button {
+      background: rgba(0,0,0,0.45);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 46px;
+      height: 46px;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      margin: 0;
+      padding: 0;
+    }
+    .slide-action-count {
+      color: white;
+      font-size: 11px;
+      margin-top: -8px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+    }
+    .feed-empty {
+      color: white;
+      text-align: center;
+      padding-top: 100px;
+    }
+
+    /* ===== Full-screen chat (phone + laptop) ===== */
+    #chat-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 9500;               /* above bottom nav (9000), below call screen (9800) */
+      width: auto !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffe4ef;
+      overflow: hidden;
+    }
+    #chat-screen .chat-shell {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100vh;               /* fallback */
+      height: 100dvh;              /* correct on mobile browsers */
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      box-sizing: border-box;
+    }
+    #chat-screen .chat-header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+    }
+    #chat-screen .chat-header .back-btn {
+      width: auto; flex: none; margin: 0; padding: 10px 14px;
+    }
+    #chat-screen .chat-header h3 {
+      flex: 1; min-width: 0; margin: 0; text-align: center;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #chat-screen .chat-header .chat-actions { display: flex; gap: 6px; flex: none; }
+    #chat-messages {
+      flex: 1 1 auto;
+      min-height: 0;               /* lets the flex child scroll */
+      overflow-y: auto;
+      overflow-x: hidden;          /* removes the sideways scrollbar */
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      box-sizing: border-box;
+      padding: 12px;
+      background: #fafafa;
+      border-top: 1px solid #e3e3e3;
+      border-bottom: 1px solid #e3e3e3;
+    }
+    #chat-messages * { max-width: 100%; }
+    #chat-messages img, #chat-messages video { height: auto; }
+    #chat-messages .chat-media { max-width: min(240px, 100%); }
+    #chat-status { flex: 0 0 auto; margin: 6px 12px 0; }
+    /* ===== WhatsApp-style message bar ===== */
+    #chat-input-row {
+      flex: 0 0 auto;
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin: 8px 12px;
+      padding: 4px 6px;
+      box-sizing: border-box;
+      background: #fff;
+      border-radius: 999px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.14);
+    }
+    #chat-input-row .composer-btn {
+      width: 44px !important; height: 44px; min-width: 44px;
+      margin: 0 !important; padding: 0 !important;
+      display: flex; align-items: center; justify-content: center;
+      background: transparent !important; color: #111 !important;
+      border: 0 !important; border-radius: 50%; cursor: pointer; flex: none;
+    }
+    #chat-input-row .composer-btn:hover { background: #f1f1f1 !important; }
+    #chat-input-row #mic-btn, #chat-input-row #send-btn { margin-left: auto !important; }
+    #chat-input-row .composer-btn svg { width: 24px; height: 24px; display: block; }
+    #chat-input-row .send-circle {
+      background: #25D366 !important; color: #fff !important;
+      margin-right: 2px !important;
+    }
+    #chat-input-row .send-circle:hover { background: #1fbd5a !important; }
+    #chat-input-row #message-input {
+      flex: 1 1 0; min-width: 0; width: auto !important; max-width: none !important;
+      margin: 0 !important; padding: 12px 6px !important;
+      border: 0 !important; border-radius: 0 !important;
+      background: transparent !important; box-shadow: none !important; outline: none;
+      font-size: 16px;                 /* stops iPhone zoom on focus */
+    }
+    #emoji-panel {
+      display: none;
+      position: absolute; left: 0; bottom: calc(100% + 8px);
+      width: min(340px, 100%);
+      max-height: 210px; overflow-y: auto;
+      grid-template-columns: repeat(8, 1fr); gap: 2px;
+      padding: 8px; box-sizing: border-box;
+      background: #fff; border-radius: 16px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25); z-index: 31;
+    }
+    #emoji-panel button {
+      width: auto !important; margin: 0 !important; padding: 4px 0 !important;
+      background: transparent !important; border: 0 !important;
+      font-size: 24px; line-height: 1.2; cursor: pointer; border-radius: 8px;
+      height: auto !important; min-width: 0 !important; box-shadow: none !important; color: #000 !important;
+    }
+    #emoji-panel button:hover { background: #f1f1f1 !important; }
+    #voice-bar { flex: 0 0 auto; margin: 8px 12px; }
+    @media (min-width: 1024px) {
+      #chat-messages { padding: 16px 12%; }
+    }
+
+  </style>
 </head>
 <body>
 
 <header>
-    <h1>LoveConnect</h1>
-    <p>Find your perfect match 💖</p>
+  <h1>LoveConnect</h1>
+  <p>Find your perfect match 💖</p>
 </header>
 
 <div class="container">
 
-    <h2>Create Profile</h2>
+  <!-- Auth / Registration / Login -->
+  <div id="auth-section">
+    <h2 id="form-title">Sign Up</h2>
 
-    <input type="text" id="name" placeholder="Your Name">
+    <div id="auth-form">
+      <input type="text" id="name" placeholder="Your Name">
+      <input type="email" id="email" placeholder="your@email.com">
+      <input type="password" id="password" placeholder="Password (min 6 chars)">
 
-    <select id="gender">
-        <option value="">Select Gender</option>
-        <option value="Male">Male</option>
-        <option value="Female">Female</option>
-    </select>
+      <button type="button" id="submit-btn" onclick="submitForm()">Sign Up</button>
+    </div>
 
-    <select id="interest">
-        <option value="">Interested In</option>
-        <option value="Male">Male</option>
-        <option value="Female">Female</option>
-    </select>
+    <p id="toggle-text">Already have an account? <a href="#" onclick="toggleForm()">Log In</a></p>
+  </div>
 
-    <button onclick="createProfile()">Create Profile</button>
+  <!-- Main app area -->
+  <div id="app" style="display:none;">
 
-    <h2>Profiles</h2>
-    <div id="profiles"></div>
+    <!-- Profile Completion Screen -->
+    <div id="profile-setup" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
+      <h2>Complete Your Profile 💕</h2>
+      <p>One last step before you can start matching!</p>
+
+      <div style="margin:20px 0;">
+        <label>Profile Picture</label><br>
+        <input type="file" id="photo-input" accept="image/*">
+        <div id="preview" style="margin-top:10px;">
+          <img id="photo-preview" style="max-width:180px; border-radius:12px; display:none;">
+        </div>
+      </div>
+
+      <textarea id="bio" placeholder="Tell others about yourself... (max 500 characters)" rows="5" maxlength="500"></textarea>
+
+      <button onclick="saveProfile()" style="margin-top:20px; padding:12px 24px;">Save & Start Matching</button>
+    </div>
+
+    <!-- Video Feed Screen (Home) -->
+    <div id="video-feed-screen" style="display:none;">
+      <div id="video-feed-container" class="video-feed-container">
+        <div id="video-feed"></div>
+      </div>
+
+      <!-- search: small button that expands when tapped -->
+      <div class="feed-search">
+        <button id="feed-search-toggle" class="feed-search-btn" onclick="openFeedSearch()" aria-label="Search users">🔍</button>
+        <div id="feed-search-bar" class="feed-search-bar">
+          <input type="text" id="search-input" placeholder="Search users..." onkeyup="if(event.key==='Enter') searchUsers()">
+          <button class="feed-search-btn" onclick="searchUsers()" aria-label="Search">🔍</button>
+          <button class="feed-search-btn" onclick="closeFeedSearch()" aria-label="Close search">✕</button>
+        </div>
+      </div>
+      <div id="search-results"></div>
+    </div>
+
+    <!-- AI tab -->
+    <div id="ai-screen">
+      <div id="ai-chips" role="group" aria-label="AI video categories"></div>
+      <button id="ai-add" type="button" aria-label="Add an AI video">+ Add</button>
+      <div id="ai-feed"></div>
+      <div id="ai-upload">
+        <h2>Add an AI video ✨</h2>
+        <input type="file" id="ai-file" accept="video/*">
+        <select id="ai-cat"><option>Generated</option><option>AI art</option><option>Tutorials</option></select>
+        <textarea id="ai-caption" placeholder="Describe it (model, prompt, tips…)" rows="3" maxlength="160"></textarea>
+        <button id="ai-send" type="button">Upload</button>
+        <button id="ai-cancel" type="button" style="background:#555;">Cancel</button>
+        <div id="ai-status" style="margin-top:8px;"></div>
+      </div>
+    </div>
+
+    <!-- Comments Panel -->
+    <div id="video-detail-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
+      <button onclick="closeVideoDetail()" style="margin-bottom:15px;">← Back</button>
+      <div id="video-detail-content"></div>
+      <h3 style="margin-top:20px;">Comments 💬</h3>
+      <div id="video-comments-list"></div>
+      <div style="display:flex; gap:10px; margin-top:10px;">
+        <input type="text" id="comment-input" placeholder="Add a comment..." style="flex:1; padding:10px; border-radius:20px; border:1px solid #ddd;">
+        <button onclick="submitComment()" style="width:auto; padding:10px 20px;">Post</button>
+      </div>
+    </div>
+
+    <!-- Map Screen -->
+    <div id="map-screen" style="display:none;">
+      <button onclick="closeMap()" style="margin:15px;">← Back</button>
+      <div id="leaflet-map" style="width:100%; height:calc(100vh - 220px);"></div>
+    </div>
+
+    <!-- World Screen (full screen) -->
+    <div id="world-screen" style="display:none; position:fixed; inset:0; z-index:9500; flex-direction:column; background:#8fd18a;">
+
+      <div id="world-topbar" style="position:relative; z-index:3; display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:6px; padding:8px; background:rgba(0,0,0,0.3);">
+        <button class="world-btn" onclick="closeWorld()">←</button>
+        <button class="world-btn" onclick="goToPlace('plaza')">🏙️ Plaza</button>
+        <button class="world-btn" onclick="goToPlace('park')">🌳 Park</button>
+        <button class="world-btn" onclick="goToPlace('cafe')">☕ Café</button>
+        <button class="world-btn" onclick="goToPlace('beach')">🏖️ Beach</button>
+        <button class="world-btn" onclick="goToPlace('houses')">🏠 Houses</button>
+        <button class="world-btn" onclick="openMapFromWorld()">🗺️ Map</button>
+        <button id="world-exit-car" class="world-btn" onclick="exitWorldCar()" style="display:none; background:#ff4d8d; color:white;">🚗 Get out</button>
+      </div>
+
+      <div id="world-stage" style="position:absolute; inset:0;">
+        <canvas id="world-canvas" style="display:block; touch-action:none; cursor:pointer;"></canvas>
+        <div id="world-portal-prompt" style="display:none; position:absolute; bottom:100px; left:50%; transform:translateX(-50%); background:linear-gradient(135deg,#3a0f6b,#7a1fa2); color:white; padding:10px 16px; border-radius:16px; box-shadow:0 4px 16px rgba(0,0,0,0.45); white-space:nowrap; z-index:4;"></div>
+        <div id="world-talk-prompt" style="display:none; position:absolute; top:112px; left:50%; transform:translateX(-50%); background:white; padding:8px 16px; border-radius:16px; box-shadow:0 2px 8px rgba(0,0,0,0.2); white-space:nowrap;"></div>
+      </div>
+
+      <div id="wchat-panel" style="display:none; position:absolute; left:50%; transform:translateX(-50%); bottom:84px; width:min(92vw, 420px); height:min(55vh, 380px); background:white; border-radius:16px; box-shadow:0 6px 24px rgba(0,0,0,0.35); flex-direction:column; overflow:hidden; z-index:5;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:#ff4d8d; color:white; font-weight:600;">
+          <span id="wchat-title"></span>
+          <button onclick="closeWorldChat()" style="width:auto; padding:2px 10px; margin:0; background:transparent; border:none; color:white; font-size:18px;">✕</button>
+        </div>
+        <div id="wchat-list" style="flex:1; overflow-y:auto; padding:10px; background:#fafafa;"></div>
+        <div style="display:flex; gap:6px; padding:8px; border-top:1px solid #eee;">
+          <input id="wchat-input" type="text" maxlength="500" placeholder="Type a message..." autocomplete="off" onkeydown="if(event.key==='Enter') sendWorldDirect()" style="flex:1; min-width:0; max-width:none; margin:0;">
+          <button onclick="sendWorldDirect()" style="width:auto; padding:10px 16px; margin:0;">Send</button>
+        </div>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:6px; padding:10px; padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px)); box-sizing:border-box; background:rgba(0,0,0,0.3); position:relative; z-index:3; margin-top:auto;">
+        <button onclick="sendWorldEmote('heart')" style="width:auto; padding:8px 12px; margin:0;">❤️</button>
+        <button onclick="sendWorldEmote('wave')" style="width:auto; padding:8px 12px; margin:0;">👋</button>
+        <button onclick="sendWorldEmote('dance')" style="width:auto; padding:8px 12px; margin:0;">💃</button>
+        <input id="world-chat-input" type="text" maxlength="80" placeholder="Say something..." autocomplete="off" onkeydown="if(event.key==='Enter') sendWorldChat()" style="flex:1; min-width:0; max-width:none; margin:0;">
+        <button onclick="sendWorldChat()" style="width:auto; padding:10px 16px; margin:0;">Send</button>
+      </div>
+    </div>
+
+    
+<!-- Public Profile Screen -->
+    <div id="public-profile-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
+      <button onclick="closePublicProfile()" style="margin-bottom:15px;">← Back</button>
+      <div id="public-profile-details" style="text-align:center;"></div>
+      <h3 style="margin-top:30px;">Videos 🎬</h3>
+      <div id="public-profile-videos"></div>
+    </div>
+
+    <!-- Messages List Screen -->
+    <div id="messages-screen" style="display:none; padding:0 15px;">
+      <h2>Your Conversations 💬</h2>
+      <button onclick="openCreateGroup()" style="max-width:300px;">➕ New group</button>
+      <div id="groups-list"></div>
+      <div id="conversations-list"></div>
+    </div>
+
+    <!-- Matching / Browsing Screen -->
+    <div id="matching-screen" style="display:none; padding:0 15px;">
+      <h2>Find someone special</h2>
+      <div id="profiles"></div>
+    </div>
+
+    <!-- My Profile Screen -->
+    <div id="my-profile-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
+      <div id="my-profile-details" style="text-align:center;"></div>
+      <button onclick="openEditProfile()" style="margin-top:15px; background:#28a745;">📷 Edit Profile Picture</button>
+      <button onclick="logout()" style="background:#999;">🚪 Log out</button>
+      <h3 style="margin-top:30px;">My Videos 🎬</h3>
+      <div id="my-videos-list"></div>
+    </div>
+
+    <!-- Upload Video Screen -->
+    <div id="upload-video-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
+      <button onclick="closeUploadVideo()" style="margin-bottom:15px;">← Back</button>
+      <h2>Upload a Video 🎬</h2>
+      <button onclick="openCamera()" style="margin-bottom:15px;">📷 Record or take a photo</button>
+      <p style="color:#666; margin:0 0 10px;">or choose a file:</p>
+      <input type="file" id="video-input" accept="video/*">
+      <textarea id="video-caption" placeholder="Add a caption..." rows="3" maxlength="200" style="margin-top:15px;"></textarea>
+      <button onclick="uploadVideo()" style="margin-top:15px;">Upload</button>
+      <div id="upload-status" style="margin-top:10px;"></div>
+    </div>
+
+    <!-- Camera Screen (photo / video with AI places & characters) -->
+    <div id="camera-screen" style="display:none; position:fixed; inset:0; z-index:9600; background:#000; text-align:left;">
+      <video id="cam-video" playsinline muted autoplay style="display:none;"></video>
+      <canvas id="cam-canvas" width="720" height="1280" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;"></canvas>
+
+      <div style="position:absolute; top:calc(10px + env(safe-area-inset-top, 0px)); left:10px; right:10px; display:flex; justify-content:space-between; align-items:center; z-index:2;">
+        <button class="feed-search-btn" onclick="closeCamera()" aria-label="Close camera">✕</button>
+        <div id="cam-timer" style="display:none; background:rgba(220,0,0,0.85); color:white; padding:6px 14px; border-radius:16px; font-weight:600;"></div>
+        <button class="feed-search-btn" onclick="flipCamera()" aria-label="Switch camera">🔄</button>
+      </div>
+      <div id="cam-status" style="display:none; position:absolute; top:calc(66px + env(safe-area-inset-top, 0px)); left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.65); color:white; padding:6px 14px; border-radius:14px; font-size:13px; white-space:nowrap; z-index:2;"></div>
+
+      <div style="position:absolute; left:0; right:0; bottom:0; padding:10px 0 calc(14px + env(safe-area-inset-bottom, 0px)); background:linear-gradient(to top, rgba(0,0,0,0.75), rgba(0,0,0,0)); z-index:2;">
+        <div id="cam-envs" class="cam-row"></div>
+        <div id="cam-chars" class="cam-row"></div>
+        <div style="display:flex; align-items:center; justify-content:center; gap:22px; margin-top:8px;">
+          <button id="cam-mode-photo" class="cam-mode" onclick="setCamMode('photo')">Photo</button>
+          <button id="cam-shutter" class="cam-shutter" onclick="camShutter()" aria-label="Take photo or record"><span></span></button>
+          <button id="cam-mode-video" class="cam-mode" onclick="setCamMode('video')">Video</button>
+        </div>
+      </div>
+
+      <div id="cam-preview" style="display:none; position:absolute; inset:0; background:rgba(0,0,0,0.94); z-index:5; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:16px; box-sizing:border-box;">
+        <img id="cam-preview-img" style="display:none; max-width:100%; max-height:60%; border-radius:12px;">
+        <video id="cam-preview-video" playsinline loop controls style="display:none; max-width:100%; max-height:60%; border-radius:12px;"></video>
+        <textarea id="cam-caption" placeholder="Add a caption..." rows="2" maxlength="200" style="display:none; max-width:420px;"></textarea>
+        <button id="cam-post-btn" onclick="camPostVideo()" style="display:none; max-width:420px;">Post video</button>
+        <button id="cam-profile-btn" onclick="camUseAsProfilePhoto()" style="display:none; max-width:420px;">Use as my profile photo</button>
+        <button onclick="camSaveToDevice()" style="max-width:420px; background:#444;">Save to my phone</button>
+        <button onclick="closeCamPreview()" style="max-width:420px; background:#444;">Retake</button>
+        <div id="cam-msg" style="color:white;"></div>
+      </div>
+    </div>
+
+    <!-- Edit Profile Picture Screen -->
+    <div id="edit-profile-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
+      <button onclick="closeEditProfile()" style="margin-bottom:15px;">← Back</button>
+      <h2>Update Profile Picture 📷</h2>
+      <input type="file" id="edit-photo-input" accept="image/*">
+      <div style="margin-top:10px;">
+        <img id="edit-photo-preview" style="max-width:180px; border-radius:12px; display:none;">
+      </div>
+      <button onclick="updateProfilePicture()" style="margin-top:15px;">Save Photo</button>
+    </div>
+
+    <!-- Chat Screen -->
+    <div id="chat-screen" style="display:none;">
+     <div class="chat-shell">
+      <div class="chat-header">
+        <button class="back-btn" onclick="closeChat()">← Back</button>
+        <h3 id="chat-title">Chat</h3>
+        <div class="chat-actions">
+          <button id="call-voice-btn" class="chat-icon-btn" onclick="startCall('audio')" aria-label="Voice call" style="display:none;">📞</button>
+          <button id="call-video-btn" class="chat-icon-btn" onclick="startCall('video')" aria-label="Video call" style="display:none;">🎥</button>
+          <button id="group-info-btn" class="chat-icon-btn" onclick="openGroupInfo()" aria-label="Group info" style="display:none;">ℹ️</button>
+        </div>
+      </div>
+
+      <div id="chat-messages">
+        <p style="text-align:center; color:#888;">Loading messages...</p>
+      </div>
+
+      <div id="chat-status" style="display:none; text-align:center; color:#888; font-size:13px;"></div>
+
+      <div id="chat-input-row" style="position:relative; display:flex; gap:8px; align-items:center;">
+        <div id="attach-menu" style="display:none; position:absolute; bottom:calc(100% + 8px); left:0; background:white; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.25); overflow:hidden; z-index:30; min-width:200px;">
+          <button class="attach-opt" onclick="pickChatFile('media')">📷 Photo or video</button>
+          <button class="attach-opt" onclick="pickChatFile('doc')">📄 Document</button>
+          <button class="attach-opt" onclick="shareChatLocation()">📍 My location</button>
+        </div>
+        <button class="composer-btn" onclick="toggleAttachMenu(event)" aria-label="Attach">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button class="composer-btn" id="emoji-btn" type="button" aria-label="Emoji">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14c1 1.5 2.3 2.2 3.5 2.2s2.5-.7 3.5-2.2"/><circle cx="9" cy="10" r=".8" fill="currentColor"/><circle cx="15" cy="10" r=".8" fill="currentColor"/></svg>
+        </button>
+        <input type="text" id="message-input" placeholder="Type a message" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter') sendMessage()">
+        <button class="composer-btn" id="mic-btn" onclick="startVoiceRecording()" aria-label="Record a voice message">
+          <svg viewBox="0 0 24 24" fill="currentColor"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button class="composer-btn send-circle" id="send-btn" onclick="sendMessage()" aria-label="Send" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4 21 12 3.4 3.6l-.1 6.5L15 12 3.3 13.9z"/></svg>
+        </button>
+        <div id="emoji-panel"></div>
+      </div>
+      <div id="voice-bar" style="display:none; align-items:center; gap:10px; background:white; border:1px solid #ddd; border-radius:25px; padding:6px 10px;">
+        <button onclick="stopVoiceRecording(false)" aria-label="Cancel recording" style="width:40px; height:40px; min-width:40px; border-radius:50%; margin:0; padding:0; background:#eee; color:#333; font-size:18px;">🗑</button>
+        <span class="rec-dot">●</span><span id="voice-timer" style="font-weight:600;">0:00</span>
+        <span style="flex:1; color:#888; text-align:left;">Recording...</span>
+        <button onclick="stopVoiceRecording(true)" aria-label="Send voice message" style="width:44px; height:44px; min-width:44px; border-radius:50%; margin:0; padding:0; background:#25D366; color:white; font-size:20px;">➤</button>
+      </div>
+      <input type="file" id="chat-file-media" accept="image/*,video/*" style="display:none;" onchange="onChatFilePicked(this)">
+      <input type="file" id="chat-file-doc" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" style="display:none;" onchange="onChatFilePicked(this)">
+     </div>
+    </div>
+
+    <!-- New group screen -->
+    <div id="group-create-screen" style="display:none; max-width:500px; margin:0 auto; padding:0 15px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <button onclick="showTab('messages')" style="width:auto; padding:8px 16px; margin:0;">← Back</button>
+        <h3 style="margin:0;">New group 👥</h3>
+        <div style="width:70px;"></div>
+      </div>
+      <input type="text" id="group-name-input" placeholder="Group name" maxlength="40">
+      <p style="text-align:left; margin:10px 0 6px; font-weight:600;">Add friends:</p>
+      <div id="group-friends" style="text-align:left; max-height:360px; overflow-y:auto;"></div>
+      <button onclick="createGroup()">Create group</button>
+    </div>
+
+    <!-- Call screen (voice and video calls) -->
+    <div id="call-screen" style="display:none; position:fixed; inset:0; z-index:9800; background:linear-gradient(160deg,#2a1240,#0d0618); color:white; flex-direction:column; align-items:center; justify-content:center; text-align:center;">
+      <video id="call-remote" autoplay playsinline style="display:none; position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#000;"></video>
+      <audio id="call-remote-audio" autoplay></audio>
+      <video id="call-local" autoplay playsinline muted style="display:none; position:absolute; top:calc(12px + env(safe-area-inset-top, 0px)); right:12px; width:110px; height:150px; object-fit:cover; border-radius:12px; border:2px solid rgba(255,255,255,0.7); background:#222; z-index:3; transform:scaleX(-1);"></video>
+
+      <div id="call-info" style="position:relative; z-index:2; display:flex; flex-direction:column; align-items:center; gap:10px; padding:20px;">
+        <div id="call-avatar" style="width:130px; height:130px; border-radius:50%; background:#ff4d8d center/cover no-repeat; display:flex; align-items:center; justify-content:center; font-size:56px; font-weight:700; box-shadow:0 0 0 8px rgba(255,255,255,0.12);"></div>
+        <h2 id="call-name" style="margin:6px 0 0;"></h2>
+        <div id="call-status" style="font-size:17px; opacity:0.85;"></div>
+      </div>
+
+      <div style="position:absolute; left:0; right:0; bottom:calc(36px + env(safe-area-inset-bottom, 0px)); display:flex; justify-content:center; gap:22px; z-index:4;">
+        <button id="call-btn-accept" class="call-btn green" onclick="acceptCall()" aria-label="Answer"><span>📞</span><small>Answer</small></button>
+        <button id="call-btn-mute" class="call-btn" onclick="toggleCallMute()" aria-label="Mute"><span>🎤</span><small id="call-mute-label">Mute</small></button>
+        <button id="call-btn-cam" class="call-btn" onclick="toggleCallCamera()" aria-label="Camera"><span>📷</span><small id="call-cam-label">Camera off</small></button>
+        <button id="call-btn-end" class="call-btn red" onclick="hangUp()" aria-label="End call"><span>✖</span><small id="call-end-label">End</small></button>
+      </div>
+    </div>
+
+    <!-- Photo viewer -->
+    <div id="media-viewer" onclick="closeMediaViewer()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:15000; align-items:center; justify-content:center; padding:16px; box-sizing:border-box;">
+      <div id="media-viewer-body" style="max-width:100%; max-height:100%; display:flex;"></div>
+      <button onclick="closeMediaViewer()" style="position:absolute; top:14px; right:14px; width:44px; height:44px; border-radius:50%; margin:0; padding:0; background:rgba(255,255,255,0.2);">✕</button>
+    </div>
+
+    <!-- Group info -->
+    <div id="group-info" onclick="if(event.target===this) closeGroupInfo()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:15000; align-items:center; justify-content:center; padding:16px; box-sizing:border-box;">
+      <div style="background:white; border-radius:16px; padding:16px; width:min(100%, 400px); max-height:85vh; overflow-y:auto; text-align:left;">
+        <div id="group-info-body"></div>
+        <button onclick="closeGroupInfo()" style="background:#444;">Close</button>
+      </div>
+    </div>
+
+    <!-- Message delete context menu -->
+    <div id="msg-context-menu" style="display:none; position:fixed; background:white; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,0.2); z-index:20000; overflow:hidden; min-width:180px;">
+      <button onclick="confirmDeleteMessage('me')" style="display:block; width:100%; text-align:left; padding:14px 18px; border:none; background:none; cursor:pointer; margin:0; border-radius:0;">🗑️ Delete for me</button>
+      <button onclick="confirmDeleteMessage('everyone')" style="display:block; width:100%; text-align:left; padding:14px 18px; border:none; background:none; cursor:pointer; margin:0; border-radius:0; color:#d32f2f;">🚫 Delete for everyone</button>
+    </div>
+
+
+
+    <!-- Bottom Nav Bar -->
+    <div id="bottom-nav" class="bottom-nav">
+      <button id="nav-videos" onclick="showTab('videos')">
+        <span class="nav-icon">🏠</span> Home
+      </button>
+      <button id="nav-matches" onclick="showTab('matching')">
+        <span class="nav-icon">👥</span> Matches
+      </button>
+      <button id="nav-ai" onclick="showTab('ai')">
+        <span class="nav-icon">✨</span> AI
+      </button>
+      <button id="nav-world" onclick="openWorld()">
+        <span class="nav-icon">🌍</span> World
+      </button>
+      <button class="plus-btn" onclick="openUploadVideo()">
+        <span class="nav-icon">+</span> Upload
+      </button>
+      <button id="nav-messages" onclick="showTab('messages')">
+        <span class="nav-icon">💬</span> Messages
+        <span id="nav-msg-dot" class="nav-dot"></span>
+      </button>
+      <button id="nav-profile" onclick="showTab('profile')">
+        <span class="nav-icon">👤</span> Profile
+      </button>
+    </div>
+
+  </div>
 
 </div>
 
-<script src="script.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="script.js?v=3"></script>
+<script src="look-catalog.js?v=1"></script>
+<script src="world3d.js?v=5"></script>
+<script src="world-look.js?v=2"></script>
+<script src="world-interact.js?v=1"></script>
+<script src="extras.js?v=9"></script>
+<script src="ai-feed.js?v=1"></script>
+<script src="ai-companion.js?v=5"></script>
 </body>
 </html>

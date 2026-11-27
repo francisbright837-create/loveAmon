@@ -111,6 +111,7 @@ const followRoutes = require("./routes/follow");
 const chatRoutes = require("./routes/chat");
 const callRoutes = require("./routes/calls");
 const aiRoutes = require("./routes/ai");
+const appearanceRoutes = require("./routes/appearance");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", authMiddleware, profileRoutes);
@@ -122,6 +123,7 @@ app.use("/api/follow", authMiddleware, followRoutes);
 app.use("/api/chat", authMiddleware, chatRoutes);
 app.use("/api/calls", authMiddleware, callRoutes);
 app.use("/api/ai", authMiddleware, aiRoutes);
+app.use("/api/appearance", authMiddleware, appearanceRoutes);   // saves a player's character style (boy/girl, clothes, pet ...)
 
 app.get("/health", (req, res) => {
   res.status(200).json({
