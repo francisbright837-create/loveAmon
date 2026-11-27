@@ -8,7 +8,7 @@ const router = express.Router();
 
 const MODEL = process.env.AI_MODEL || "claude-sonnet-5-5";
 // Google retires Gemini models over time. We try your GEMINI_MODEL first (if set), then these, and remember the one that works.
-const GEMINI_MODELS = (process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : []).concat(["gemini-3.8-flash", "gemini-flash-latest"]);
+const GEMINI_MODELS = (process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : []).concat(["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest"]);
 let workingGemini = null;
 const NAME = process.env.AI_PERSONA_NAME || "Mia";
 
@@ -79,19 +79,25 @@ async function askGeminiOnce(model, msgs) {
   return parts.map(p => p.text || "").join("").trim();
 }
 
+// Google sometimes says "high demand" (503) or "slow down" (429). That is temporary, so we try the next model and,
+// if they are all busy, wait a moment and go around once more.
+const RETRYABLE = /Gemini (404|429|500|502|503|504)/;
 async function askGemini(msgs) {
-  const order = workingGemini ? [workingGemini] : GEMINI_MODELS;
   let lastErr;
-  for (const model of order) {
-    try {
-      const reply = await askGeminiOnce(model, msgs);
-      workingGemini = model;
-      return reply;
-    } catch (err) {
-      lastErr = err;
-      if (!/Gemini 404/.test(err.message)) throw err;        // only move on to the next model if this one is gone
-      workingGemini = null;
+  for (let pass = 0; pass < 2; pass++) {
+    const order = workingGemini ? [workingGemini].concat(GEMINI_MODELS.filter(m => m !== workingGemini)) : GEMINI_MODELS;
+    for (const model of order) {
+      try {
+        const reply = await askGeminiOnce(model, msgs);
+        workingGemini = model;
+        return reply;
+      } catch (err) {
+        lastErr = err;
+        if (!RETRYABLE.test(err.message)) throw err;        // a bad key etc. will not fix itself, so stop right away
+        workingGemini = null;
+      }
     }
+    if (pass === 0) await new Promise(r => setTimeout(r, 900));
   }
   throw lastErr;
 }
