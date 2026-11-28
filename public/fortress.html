@@ -13,6 +13,7 @@ canvas{display:block;width:100%;height:100%}
 .bar{height:10px;background:rgba(0,0,0,.65);border:1px solid #6b6252;margin-bottom:5px;box-shadow:0 0 6px #000}
 .bar i{display:block;height:100%;transition:width .12s}
 #hp i{background:linear-gradient(#d4503a,#7a1810)}#st i{background:linear-gradient(#7cc45a,#3b6a28)}
+#mp i{background:linear-gradient(#7ab4ff,#2a3aa8)}
 #powers{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .pw{width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.55);border:1px solid var(--gold);display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 0 8px rgba(201,164,92,.35)}
 #info{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));top:calc(14px + env(safe-area-inset-top,0px));text-align:right;font-size:14px;color:var(--gold);text-shadow:0 0 6px #000;pointer-events:none}
@@ -29,24 +30,30 @@ canvas{display:block;width:100%;height:100%}
 /* touch buttons: big, in a thumb arc, with an invisible extra ring so a sloppy tap still counts */
 .btn{position:fixed;border-radius:50%;border:2px solid rgba(201,164,92,.75);background:rgba(10,8,6,.5);color:var(--fg);display:flex;align-items:center;justify-content:center;font:15px Georgia,serif;touch-action:none;z-index:4;transition:transform .06s,background .06s}
 .btn::after{content:'';position:absolute;inset:-16px;border-radius:50%}
+.btn small{font-size:11px;letter-spacing:.04em}
+.btn{flex-direction:column}
+.btn{text-align:center;line-height:1.15}
+.btn.dim{opacity:.45}
 .btn.on{background:rgba(201,164,92,.38);transform:scale(.92)}
 #bA{right:calc(22px + env(safe-area-inset-right,0px));bottom:calc(58px + env(safe-area-inset-bottom,0px));width:100px;height:100px;font-size:17px}
 #bR{right:calc(136px + env(safe-area-inset-right,0px));bottom:calc(30px + env(safe-area-inset-bottom,0px));width:76px;height:76px}
 #bL{right:calc(44px + env(safe-area-inset-right,0px));bottom:calc(172px + env(safe-area-inset-bottom,0px));width:66px;height:66px}
+#bP{right:calc(125px + env(safe-area-inset-right,0px));bottom:calc(125px + env(safe-area-inset-bottom,0px));width:72px;height:72px;font-size:22px;border-color:rgba(255,160,60,.85)}
+#bF{right:calc(218px + env(safe-area-inset-right,0px));bottom:calc(116px + env(safe-area-inset-bottom,0px));width:66px;height:66px;font-size:22px;border-color:rgba(160,210,255,.85)}
 #joy{position:fixed;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.06);display:none;pointer-events:none;width:130px;height:130px;margin:-65px 0 0 -65px}
 #joy i{position:absolute;width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.35);left:38px;top:38px}
 #help{position:fixed;left:14px;bottom:14px;font-size:12px;color:#8a8272;pointer-events:none;line-height:1.5;max-width:46vw}
 </style></head><body>
 <div id="vig"></div>
-<div id="hud"><div class="bar" id="hp"><i style="width:100%"></i></div><div class="bar" id="st"><i style="width:100%"></i></div><div id="powers"></div></div>
+<div id="hud"><div class="bar" id="hp"><i style="width:100%"></i></div><div class="bar" id="st"><i style="width:100%"></i></div><div class="bar" id="mp" style="display:none"><i style="width:100%"></i></div><div id="powers"></div></div>
 <div id="info"><div id="souls">Souls 0</div><div id="wave"></div></div>
 <div id="boss"><div id="bossname"></div><div class="bar" id="bosshp"><i style="width:100%"></i></div></div>
 <div id="phint"><span id="parrow">▲</span><span id="pdist">Portal</span></div>
 <div id="fade"></div>
 <div id="msg"></div><div id="lock"></div><div id="joy"><i></i></div>
-<div class="btn" id="bA">Attack</div><div class="btn" id="bR">Roll</div><div class="btn" id="bL">Lock</div>
+<div class="btn" id="bA">Attack</div><div class="btn" id="bR">Roll</div><div class="btn" id="bL">Lock</div><div class="btn" id="bP" style="display:none">✨<br><small>Power</small></div><div class="btn" id="bF" style="display:none">🦅<br><small>Fly</small></div>
 <button id="exit">✕ Exit</button>
-<div id="help">WASD move · Space roll · J / click attack · Q lock-on · drag to turn camera</div>
+<div id="help">WASD move · Space roll · J / click attack · K power · F fly · Q lock-on · drag to turn camera</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="fortress.js"></script>
 </body></html>

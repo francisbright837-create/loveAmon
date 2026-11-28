@@ -165,6 +165,7 @@ function pose(R,S,dt,t){
     const m=i=>lerp(A[i],B[i],w);rAx=m(0);rAz=m(1);rF=m(2);lAx=m(3);tY=m(4);tX=m(5);rT=m(6);lT=m(7);rS=-.5;lS=-.4;kf=Math.min(1,dt*30);bodyX=-.05*(u>.4&&u<.62?1:0)}
   if(S.prep){const u=S.prep;rAx=lerp(rAx,2.6,u);lAx=lerp(lAx,2.4,u);rF=.5;lFx=.5;tX=.25*u}                                                       // enemy wind-up: both arms overhead
   if(S.hit>0){tX=.5;rAx=.8;lAx=.8;hx=.35;kf=Math.min(1,dt*30)}
+  if(S.lean)bodyX=S.lean;
   R.hips.position.y=hipY;
   damp(R.rT,rT,0,-.04,kf);damp(R.lT,lT,0,.04,kf);damp(R.rS,rS,0,0,kf);damp(R.lS,lS,0,0,kf);
   damp(R.tor,tX,tY,0,kf);damp(R.rA,rAx,0,rAz,kf);damp(R.lA,lAx,0,-.05,kf);damp(R.rF,rF,0,0,kf);damp(R.lF,lFx,0,0,kf);damp(R.head,hx-tX*.5,-tY*.5,0,k);
@@ -178,8 +179,9 @@ function pose(R,S,dt,t){
 /* ---------- powers: one new power at the end of each level ---------- */
 const POWERS=[
  {id:'swift',icon:'💨',name:'Wind Step',desc:'You move, roll and strike faster'},
- {id:'fire',icon:'🔥',name:'Flame Blade',desc:'Your sword burns what it cuts'},
- {id:'bolt',icon:'⚡',name:'Storm Edge',desc:'Lightning leaps between demons'},
+ {id:'fly',icon:'🦅',name:'Wings',desc:'Tap Fly to take to the air. Demons cannot touch you up there, but you cannot swing your sword'},
+ {id:'fire',icon:'🔥',name:'Flame Blade',desc:'Your sword burns what it cuts. Tap Power to hurl a wave of fire'},
+ {id:'bolt',icon:'⚡',name:'Storm Edge',desc:'Lightning leaps between demons. Tap Power to call down a thunderstorm'},
  {id:'drain',icon:'🩸',name:'Soul Drinker',desc:'Every kill heals you'},
  {id:'quake',icon:'🌋',name:'Earthbreaker',desc:'Heavy strikes shatter the ground'}];
 let powers=new Set();
@@ -189,12 +191,16 @@ const SAVE='fortress-save-v1';
 const loadSave=()=>{try{return JSON.parse(localStorage.getItem(SAVE))||{}}catch(e){return{}}};
 const writeSave=n=>{try{localStorage.setItem(SAVE,JSON.stringify({level:n,souls:P.souls}))}catch(e){}};
 const hero=makeRig({armor:plain(0x2c3038,.35,.85),trim:plain(0xb08a45,.4,.8),skin:plain(0xcaa88a,.8),sword:true,cape:true,scale:1.05});
-const P={pos:new T.Vector3(0,0,22),vel:new T.Vector3(),hp:100,max:100,st:100,souls:0,S:newState(),stT:0,lock:null,wantAtk:0,dead:false,iframe:0,spd:1,atk:1,dmgMul:1,stRegen:24};
+const P={pos:new T.Vector3(0,0,22),vel:new T.Vector3(),hp:100,max:100,st:100,souls:0,S:newState(),stT:0,lock:null,wantAtk:0,dead:false,iframe:0,fly:false,fh:0,mp:100,cdPow:0,spd:1,atk:1,dmgMul:1,stRegen:24};
 P.S.face=0;hero.root.position.copy(P.pos);
 // sword effects for the fire / lightning powers
 hero.fxFire=[0,1,2].map(i=>{const s=new T.Sprite(softMat.clone());s.material.color.setHex(0xff6a1a);s.position.set(0,-.35-i*.3,0);s.scale.set(.5,.7,1);s.visible=false;hero.sword.add(s);return s});
 hero.fxBolt=[0,1,2].map(()=>{const s=new T.Sprite(softMat.clone());s.material.color.setHex(0xaad4ff);s.scale.set(.32,.32,1);s.visible=false;hero.sword.add(s);return s});
 hero.swLight=new T.PointLight(0xff7020,0,7,2);hero.swLight.position.set(0,-.6,0);hero.sword.add(hero.swLight);
+// wings (only visible while flying)
+hero.wings=new T.Group();hero.wings.position.set(0,.5,.17);hero.wings.visible=false;hero.tor.add(hero.wings);
+const wingMat=new T.MeshBasicMaterial({color:0xcfe8ff,transparent:true,opacity:.8,side:T.DoubleSide,blending:T.AdditiveBlending,depthWrite:false});
+hero.wingP=[1,-1].map(sd=>{const pv=new T.Group();pv.position.set(sd*.1,0,0);for(let i=0;i<5;i++){const len=1.25-i*.17,g=new T.PlaneGeometry(.17,len);g.translate(0,len/2,0);const m=new T.Mesh(g,wingMat);m.rotation.z=-sd*(.25+i*.3);pv.add(m)}hero.wings.add(pv);return pv});
 function swordFx(t){const f=powers.has('fire'),b=powers.has('bolt');
   hero.fxFire.forEach((s,i)=>{s.visible=f;if(f){const k=1+Math.sin(t*18+i*2)*.2;s.scale.set(.5*k,.75*k,1)}});
   hero.fxBolt.forEach(s=>{s.visible=b&&Math.random()<.5;if(s.visible)s.position.set(rand(-.08,.08),-.2-Math.random()*.9,0)});
@@ -203,7 +209,7 @@ function swordFx(t){const f=powers.has('fire'),b=powers.has('bolt');
   hero.bladeMat.emissive.setHex(col);hero.bladeMat.emissiveIntensity=ei;hero.swLight.color.setHex(col);hero.swLight.intensity=(f||b)?1.3:0}
 function renderPowers(){const el=$('powers');el.innerHTML='';POWERS.forEach(p=>{if(powers.has(p.id)){const d=document.createElement('div');d.className='pw';d.textContent=p.icon;d.title=p.name;el.appendChild(d)}})}
 function applyStats(){const sw=powers.has('swift');P.spd=sw?1.3:1;P.atk=sw?.82:1;P.stRegen=sw?33:24;P.dmgMul=1+(level>POWERS.length?(level-POWERS.length)*.08:0);
-  const mx=100+(level-1)*10;if(mx!==P.max){P.hp+=mx-P.max;P.max=mx}renderPowers()}
+  const mx=100+(level-1)*10;if(mx!==P.max){P.hp+=mx-P.max;P.max=mx}renderPowers();$('bP').style.display=(powers.has('fire')||powers.has('bolt'))?'flex':'none';$('bF').style.display=powers.has('fly')?'flex':'none';$('mp').style.display=(powers.has('fire')||powers.has('bolt')||powers.has('fly'))?'block':'none'}
 
 /* ---------- enemies ---------- */
 const TYPES={
@@ -238,7 +244,7 @@ function startLevel(n){
   level=n;powers=new Set(POWERS.slice(0,Math.min(n-1,POWERS.length)).map(p=>p.id));applyStats();
   buildArena(n);
   foes.forEach(e=>scene.remove(e.rig.root));foes.length=0;shots.forEach(s=>{scene.remove(s.sp);s.sp.material.dispose()});shots.length=0;
-  P.pos.set(0,0,22);P.vel.set(0,0,0);P.lock=null;P.hp=P.max;P.st=100;P.dead=false;P.S.dead=0;P.S.hit=0;P.S.at=null;P.S.roll=null;P.S.face=0;P.iframe=0;yaw=0;
+  P.pos.set(0,0,22);P.vel.set(0,0,0);P.lock=null;P.hp=P.max;P.st=100;P.dead=false;P.S.dead=0;P.S.hit=0;P.S.at=null;P.S.roll=null;P.S.face=0;P.iframe=0;yaw=0;P.fly=false;P.fh=0;P.mp=100;setFlyLabel();
   wave=0;waves=3+(n>=4?1:0);levelClear=false;waveWait=2.4;
   const gr=Math.floor((n-1)/THEMES.length);
   banner(TH.name+(gr?' · DEPTH '+(gr+1):''),TH.sub,3400);$('wave').textContent='Level '+n+' · Wave 0/'+waves;$('souls').textContent='Souls '+P.souls;
@@ -266,13 +272,13 @@ function goNext(){if(transitioning)return;transitioning=true;buzz(30);$('fade').
 const key={};let yaw=0,pitch=.38,holdAtk=false;
 const joy={on:false,id:null,x:0,y:0,ox:0,oy:0},look={id:null,x:0,y:0};
 const JR=46;   // how far the thumb can push the stick
-addEventListener('keydown',e=>{key[e.code]=1;if(e.code==='Space')roll();if(e.code==='KeyJ')P.wantAtk=.35;if(e.code==='KeyQ')toggleLock();if(/^(Space|Arrow)/.test(e.code))e.preventDefault()});
+addEventListener('keydown',e=>{key[e.code]=1;if(e.code==='Space')roll();if(e.code==='KeyJ')P.wantAtk=.35;if(e.code==='KeyQ')toggleLock();if(e.code==='KeyK')castPower();if(e.code==='KeyF')toggleFly();if(/^(Space|Arrow)/.test(e.code))e.preventDefault()});
 addEventListener('keyup',e=>{key[e.code]=0});
 // on-screen buttons. Attack can be HELD to keep swinging. They light up while pressed.
 function onBtn(id,down,up){const b=$(id);
   b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();b.classList.add('on');buzz(8);down()});
   ['pointerup','pointercancel','pointerleave'].forEach(n=>b.addEventListener(n,()=>{if(b.classList.contains('on')){b.classList.remove('on');if(up)up()}}))}
-onBtn('bA',()=>{holdAtk=true;P.wantAtk=.35},()=>{holdAtk=false});onBtn('bR',roll);onBtn('bL',toggleLock);
+onBtn('bA',()=>{holdAtk=true;P.wantAtk=.35},()=>{holdAtk=false});onBtn('bR',roll);onBtn('bL',toggleLock);onBtn('bP',castPower);onBtn('bF',toggleFly);
 addEventListener('pointerdown',e=>{if(e.target.closest&&e.target.closest('.btn,#exit'))return;
   const left=e.clientX<innerWidth*.5&&e.pointerType!=='mouse';
   if(left){if(!joy.on){joy.on=true;joy.id=e.pointerId;joy.x=joy.y=0;joy.ox=e.clientX;joy.oy=e.clientY;const j=$('joy');j.style.display='block';j.style.left=e.clientX+'px';j.style.top=e.clientY+'px'}}
@@ -290,7 +296,7 @@ addEventListener('pointermove',e=>{
 ['gesturestart','gesturechange','gestureend','contextmenu'].forEach(n=>addEventListener(n,e=>e.preventDefault()));
 document.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
 $('exit').addEventListener('click',()=>{try{parent.postMessage('fortress-exit','*')}catch(x){}if(parent===window)history.back()});
-if(TOUCH)$('help').textContent='Left thumb: move · Right side: Attack (hold to keep swinging) / Roll / Lock · Drag the right side to turn the camera';
+if(TOUCH)$('help').textContent='Left thumb: move · Right side: Attack (hold to keep swinging) / Roll / Lock / Power / Fly · Drag the right side to turn the camera';
 function toggleLock(){if(P.lock){P.lock=null;return}let best=null,bd=26;foes.forEach(e=>{if(e.dead)return;const d=e.pos.distanceTo(P.pos);if(d<bd){bd=d;best=e}});P.lock=best}
 
 /* ---------- effects ---------- */
@@ -307,23 +313,23 @@ function boltFx(a,b){const g=new T.Group(),pa=a.clone(),pb=b.clone();pa.y+=1.2;p
 function shoot(from,dir,dmg,col,spd){const sp=new T.Sprite(softMat.clone());sp.material.color.setHex(col);sp.scale.set(1.2,1.2,1);sp.position.copy(from);scene.add(sp);shots.push({sp,vx:dir.x*spd,vz:dir.z*spd,life:4,dmg})}
 function updateShots(dt){for(let i=shots.length-1;i>=0;i--){const s=shots[i],p=s.sp.position;p.x+=s.vx*dt;p.z+=s.vz*dt;s.life-=dt;s.sp.scale.setScalar(1.2+Math.sin(clock*20+i)*.15);
   let gone=s.life<=0||Math.abs(p.x)>39||Math.abs(p.z)>39||colliders.some(c=>Math.hypot(p.x-c.x,p.z-c.z)<c.r);
-  if(!gone&&!P.dead&&Math.hypot(p.x-P.pos.x,p.z-P.pos.z)<.85){hurtPlayer(s.dmg,p);gone=true}
+  if(!gone&&!P.dead&&Math.hypot(p.x-P.pos.x,p.z-P.pos.z)<.85){hurtPlayer(s.dmg,p,true);gone=true}
   if(gone){scene.remove(s.sp);s.sp.material.dispose();shots.splice(i,1)}}}
 
 /* ---------- combat ---------- */
 function aimAssist(){const S=P.S,f=fwd(S.face);let best=null,bs=1e9;
   foes.forEach(e=>{if(e.dead)return;const dx=e.pos.x-P.pos.x,dz=e.pos.z-P.pos.z,d=Math.hypot(dx,dz);if(d>4.6)return;const dot=(dx*f[0]+dz*f[1])/(d||1);if(d>1.6&&dot<.2)return;const s=d-dot*2;if(s<bs){bs=s;best=e}});
   if(best)S.face=heading(best.pos.x-P.pos.x,best.pos.z-P.pos.z)}           // your swing turns toward the nearest demon in front of you
-function startAttack(){const S=P.S;if(P.dead||S.roll||S.hit>0||transitioning)return;const chain=S.at&&S.at.t>S.at.dur*.55;if(S.at&&!chain)return;if(P.st<14)return;
+function startAttack(){const S=P.S;if(P.dead||S.roll||S.hit>0||transitioning||P.fly)return;const chain=S.at&&S.at.t>S.at.dur*.55;if(S.at&&!chain)return;if(P.st<14)return;
   if(!P.lock)aimAssist();
   const kind=S.at?(S.at.kind+1)%3:0;P.st-=kind===2?24:16;P.stT=.7;S.at={t:0,dur:(kind===2?.85:.62)*P.atk,kind:kind===2?0:kind,heavy:kind===2,hits:new Set()}}
-function roll(){const S=P.S;if(P.dead||S.roll||S.hit>0||P.st<20||transitioning)return;P.st-=20;P.stT=.7;S.at=null;
+function roll(){const S=P.S;if(P.dead||S.roll||S.hit>0||P.st<20||transitioning||P.fly)return;P.st-=20;P.stT=.7;S.at=null;
   const m=moveInput();let d=Math.hypot(m[0],m[1])>.1?m:fwd(S.face);const l=Math.hypot(d[0],d[1])||1;S.roll={t:0,dur:.55,dx:d[0]/l,dz:d[1]/l};P.iframe=.5;S.face=heading(S.roll.dx,S.roll.dz)}
 function moveInput(){let f=(key.KeyW||key.ArrowUp?1:0)-(key.KeyS||key.ArrowDown?1:0)-joy.y,r=(key.KeyD||key.ArrowRight?1:0)-(key.KeyA||key.ArrowLeft?1:0)+joy.x;
   const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);let x=fx*f+rx*r,z=fz*f+rz*r;const l=Math.hypot(x,z);if(l>1){x/=l;z/=l}return[x,z]}
-function hurtPlayer(n,from){if(P.dead||P.iframe>0||transitioning)return;P.hp-=n;P.S.hit=.35;P.S.at=null;dmgText(P.pos,n,'#ff6a5a');shake=Math.max(shake,.25);buzz(40);const d=P.pos.clone().sub(from);d.y=0;d.normalize().multiplyScalar(3.5);P.vel.add(d);
-  if(P.hp<=0){P.hp=0;P.dead=true;holdAtk=false;P.S.dead=.001;P.S.roll=null;banner('YOU DIED','Press Space or tap Roll to rise again');buzz([80,40,120])}}
-function respawn(){P.hp=P.max;P.st=100;P.dead=false;P.S.dead=0;P.S.hit=0;P.pos.set(0,0,22);P.lock=null;banner('',0,10);$('msg').style.opacity=0;
+function hurtPlayer(n,from,ranged){if(P.dead||P.iframe>0||transitioning||(P.fly&&!ranged))return;P.hp-=n;P.S.hit=.35;P.S.at=null;dmgText(P.pos,n,'#ff6a5a');shake=Math.max(shake,.25);buzz(40);const d=P.pos.clone().sub(from);d.y=0;d.normalize().multiplyScalar(3.5);P.vel.add(d);
+  if(P.hp<=0){P.hp=0;P.dead=true;holdAtk=false;setFly(false);P.S.dead=.001;P.S.roll=null;banner('YOU DIED','Press Space or tap Roll to rise again');buzz([80,40,120])}}
+function respawn(){P.hp=P.max;P.st=100;P.mp=100;P.fh=0;P.dead=false;P.S.dead=0;P.S.hit=0;P.pos.set(0,0,22);P.lock=null;banner('',0,10);$('msg').style.opacity=0;
   shots.forEach(s=>{scene.remove(s.sp);s.sp.material.dispose()});shots.length=0;foes.forEach(e=>{if(!e.dead){e.st='idle';e.S.prep=0;e.S.at=null}})}
 function pushOut(pos,r){colliders.forEach(c=>{const dx=pos.x-c.x,dz=pos.z-c.z,d=Math.hypot(dx,dz),m=c.r+r;if(d<m&&d>.001){pos.x=c.x+dx/d*m;pos.z=c.z+dz/d*m}});pos.x=clamp(pos.x,-37,37);pos.z=clamp(pos.z,-37,37)}
 
@@ -342,21 +348,54 @@ function swordHits(){const S=P.S,f=fwd(S.face);
   foes.forEach(e=>{if(e.dead||S.at.hits.has(e))return;const d=e.pos.clone().sub(P.pos);d.y=0;const dist=d.length();if(dist>2.9+(e.heavy?.4:0)+(e.boss?.9:0))return;
     if(dist>.8&&(d.x*f[0]+d.z*f[1])/dist<.35)return;S.at.hits.add(e);
     let dm=(S.at.heavy?38:22)*rand(.9,1.15)*P.dmgMul;if(powers.has('fire'))dm*=1.25;dm=Math.round(dm);
-    hitFoe(e,dm,{kb:d.normalize().multiplyScalar(e.heavy?.4:1.1)});buzz(12);
+    hitFoe(e,dm,{kb:d.normalize().multiplyScalar(e.heavy?.4:1.1)});buzz(12);P.mp=Math.min(100,P.mp+4);
     if(!e.dead&&powers.has('fire')){e.burn=3;e.burnDps=Math.round(8*P.dmgMul)}
     if(powers.has('bolt'))chain(e,dm)});
   if(S.at.heavy&&powers.has('quake')&&!S.at.quaked){S.at.quaked=true;quake()}}
 
+/* ---------- active powers: the Power button (fire wave + thunderstorm) and Wings ---------- */
+const pshots=[];
+function skyBolt(pos){const g=new T.Group(),top=new T.Vector3(pos.x+rand(-.6,.6),17,pos.z+rand(-.6,.6));
+  for(let k=0;k<3;k++){const pts=[];for(let i=0;i<=9;i++){const p=top.clone().lerp(pos,i/9);if(i>0&&i<9){p.x+=rand(-.7,.7);p.z+=rand(-.7,.7)}pts.push(p)}
+    g.add(new T.Line(new T.BufferGeometry().setFromPoints(pts),new T.LineBasicMaterial({color:k?0x9fd0ff:0xffffff,transparent:true})))}
+  const fl=new T.Sprite(softMat.clone());fl.material.color.setHex(0xbfe0ff);fl.scale.set(4,4,1);fl.position.set(pos.x,pos.y+.8,pos.z);g.add(fl);
+  addFx(g,.35,(u,o)=>{o.children.forEach(c=>{c.material.opacity=1-u})})}
+function thunder(){const c=foes.filter(e=>!e.dead&&e.pos.distanceTo(P.pos)<17).sort((a,b)=>a.pos.distanceTo(P.pos)-b.pos.distanceTo(P.pos)).slice(0,5);
+  c.forEach(e=>{skyBolt(e.pos);ring(e.pos,2.6,0x9fd0ff,.4);hitFoe(e,Math.round(42*P.dmgMul),{col:'#9fd0ff'});
+    if(!e.dead){if(!e.boss){e.st='stagger';e.tm=1}if(powers.has('fire')){e.burn=3;e.burnDps=Math.round(8*P.dmgMul)}}});
+  if(c.length){shake=Math.max(shake,.4);buzz([30,30,50])}return c.length>0}
+function fireWave(){const f=fwd(P.S.face),g=new T.Group();
+  [0xffd070,0xff8a20,0xff5a10,0xff4a10,0xc83a10].forEach((c,i)=>{const s=new T.Sprite(softMat.clone());s.material.color.setHex(c);const z=2.6-i*.35;s.scale.set(z,z,1);s.position.set(-f[0]*i*.55,0,-f[1]*i*.55);g.add(s)});
+  g.position.set(P.pos.x+f[0]*1.2,P.pos.y+P.fh+1.2,P.pos.z+f[1]*1.2);scene.add(g);
+  pshots.push({g,dx:f[0],dz:f[1],life:1.05,hit:new Set()});ring(P.pos,2,0xff8a30,.35)}
+function updatePShots(dt){for(let i=pshots.length-1;i>=0;i--){const s=pshots[i],p=s.g.position;p.x+=s.dx*17*dt;p.z+=s.dz*17*dt;s.life-=dt;
+  s.g.children.forEach((c,k)=>{c.scale.setScalar((2.6-k*.35)*(1+Math.sin(clock*25+k*2)*.12))});
+  foes.forEach(e=>{if(e.dead||s.hit.has(e))return;if(Math.hypot(e.pos.x-p.x,e.pos.z-p.z)<1.6+(e.boss?1.4:e.heavy?.5:0)){s.hit.add(e);
+    hitFoe(e,Math.round(34*P.dmgMul),{kb:new T.Vector3(s.dx,0,s.dz).multiplyScalar(e.heavy?.3:1.5)});if(!e.dead){e.burn=4;e.burnDps=Math.round(10*P.dmgMul)}}});
+  const blocked=colliders.some(c=>Math.hypot(p.x-c.x,p.z-c.z)<c.r+.2)||Math.abs(p.x)>39||Math.abs(p.z)>39;
+  if(s.life<=0||blocked){if(blocked)ring(new T.Vector3(p.x,p.y-1.1,p.z),2.2,0xff8a30,.3);scene.remove(s.g);s.g.children.forEach(c=>c.material.dispose());pshots.splice(i,1)}}}
+function castPower(){const F=powers.has('fire'),B=powers.has('bolt');if(P.dead||transitioning||P.cdPow>0||(!F&&!B))return;
+  if(P.mp<40){dmgText(P.pos,'Power low','#9fb0ff');return}
+  let ok=false;if(B)ok=thunder();if(F){fireWave();ok=true}
+  if(!ok){dmgText(P.pos,'No target','#9fb0ff');return}
+  P.mp-=40;P.cdPow=.6;P.S.at={t:0,dur:.38,kind:1,fx:true,hits:new Set()};buzz(25)}
+const FLYLBL='🦅<br><small>Fly</small>',LANDLBL='🦅<br><small>Land</small>';
+function setFlyLabel(){$('bF').innerHTML=P.fly?LANDLBL:FLYLBL}
+function setFly(v){if(P.fly===v)return;P.fly=v;P.S.at=null;P.S.roll=null;if(v){ring(P.pos,2.4,0xcfe8ff,.5);buzz(20)}setFlyLabel()}
+function toggleFly(){if(!powers.has('fly')||P.dead||transitioning)return;if(P.fly)setFly(false);else if(P.mp>=15)setFly(true);else dmgText(P.pos,'Power low','#9fb0ff')}
+
 function updatePlayer(dt,t){
   const S=P.S;P.iframe=Math.max(0,P.iframe-dt);P.stT-=dt;if(P.stT<=0)P.st=Math.min(100,P.st+P.stRegen*dt);S.hit=Math.max(0,S.hit-dt);
+  P.fh+=((P.fly?4.2:0)-P.fh)*Math.min(1,dt*5);P.cdPow=Math.max(0,P.cdPow-dt);
+  if(P.fly){P.mp-=10*dt;if(P.mp<=0){P.mp=0;setFly(false)}}else P.mp=Math.min(100,P.mp+(powers.has('swift')?9:7)*dt);
   if(transitioning){P.vel.set(0,0,0);S.sp=0;pose(hero,S,dt,t);return}
   if(P.dead){S.dead+=dt;if(S.dead>1.2&&(key.Space||P.wantAtk>0)){respawn()}pose(hero,S,dt,t);return}
   if(holdAtk)P.wantAtk=.35;
   if(P.wantAtk>0){P.wantAtk-=dt;startAttack();if(S.at&&S.at.t<.02)P.wantAtk=0}
-  const m=moveInput(),MAXV=5.4*P.spd;
+  const m=moveInput(),MAXV=5.4*P.spd*(P.fly?1.35:1);
   if(S.roll){S.roll.t+=dt;P.vel.x=S.roll.dx*8.4*P.spd;P.vel.z=S.roll.dz*8.4*P.spd;if(S.roll.t>=S.roll.dur){S.roll=null}}
-  else if(S.at){S.at.t+=dt;const u=S.at.t/S.at.dur;const f=fwd(S.face),push=u>.35&&u<.62?(S.at.heavy?5.5:4):0;P.vel.x=f[0]*push;P.vel.z=f[1]*push;
-    if(u>.38&&u<.55)swordHits();if(S.at.t>=S.at.dur)S.at=null}
+  else if(S.at){S.at.t+=dt;const u=S.at.t/S.at.dur;const f=fwd(S.face),push=!S.at.fx&&u>.35&&u<.62?(S.at.heavy?5.5:4):0;P.vel.x=f[0]*push;P.vel.z=f[1]*push;
+    if(!S.at.fx&&u>.38&&u<.55)swordHits();if(S.at.t>=S.at.dur)S.at=null}
   else if(S.hit<=0){P.vel.x+=(m[0]*MAXV-P.vel.x)*Math.min(1,dt*10);P.vel.z+=(m[1]*MAXV-P.vel.z)*Math.min(1,dt*10);
     if(P.lock&&!P.lock.dead){const d=P.lock.pos.clone().sub(P.pos);S.face+=adiff(S.face,heading(d.x,d.z))*Math.min(1,dt*12)}
     else if(Math.hypot(m[0],m[1])>.15)S.face+=adiff(S.face,heading(m[0],m[1]))*Math.min(1,dt*12)}
@@ -364,6 +403,7 @@ function updatePlayer(dt,t){
   P.pos.x+=P.vel.x*dt;P.pos.z+=P.vel.z*dt;pushOut(P.pos,.45);
   const gy=groundY(P.pos.x,P.pos.z);P.pos.y+=(gy-P.pos.y)*Math.min(1,dt*(gy>P.pos.y?14:7));
   S.sp=S.roll||S.at?0:Math.min(1,Math.hypot(P.vel.x,P.vel.z)/MAXV);if(P.lock&&P.lock.dead)P.lock=null;
+  if(P.fly){S.sp=0;S.lean=-.32*Math.min(1,Math.hypot(P.vel.x,P.vel.z)/MAXV)-.08}else S.lean=0;
   pose(hero,S,dt,t)}
 
 function updateFoes(dt,t){foes.forEach(e=>{const S=e.S,D=e.T;S.hit=Math.max(0,S.hit-dt);
@@ -402,8 +442,9 @@ function updateFoes(dt,t){foes.forEach(e=>{const S=e.S,D=e.T;S.hit=Math.max(0,S.
 /* ---------- camera + loop ---------- */
 const cp=new T.Vector3();let last=performance.now(),clock=0;
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
-  updatePlayer(dt,clock);updateFoes(dt,clock);updateShots(dt);fxStep(dt);swordFx(clock);
-  hero.root.position.copy(P.pos);hero.root.rotation.y=P.S.face;foes.forEach(e=>{e.rig.root.position.copy(e.pos);e.rig.root.rotation.y=e.S.face});
+  updatePlayer(dt,clock);updateFoes(dt,clock);updateShots(dt);updatePShots(dt);fxStep(dt);swordFx(clock);
+  hero.root.position.copy(P.pos);hero.root.position.y+=P.fh+(P.fh>.5?Math.sin(clock*3)*.15:0);hero.root.rotation.y=P.S.face;
+  hero.wings.visible=P.fh>.2;if(hero.wings.visible){const fl=Math.sin(clock*(P.fly?9:4))*.5;hero.wingP[0].rotation.y=.35+fl*.6;hero.wingP[1].rotation.y=-.35-fl*.6;hero.wings.scale.setScalar(.45+.55*Math.min(1,P.fh/4))}foes.forEach(e=>{e.rig.root.position.copy(e.pos);e.rig.root.rotation.y=e.S.face});
   // waves -> boss -> level cleared -> portal
   if(!foes.some(e=>!e.dead)&&!P.dead&&!levelClear&&!transitioning){waveWait-=dt;if(waveWait<=0){if(wave>=waves)completeLevel();else nextWave();waveWait=4}}else waveWait=Math.max(waveWait,levelClear?0:3);
   const ph=$('phint');
@@ -413,7 +454,7 @@ function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
     const fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
     $('parrow').style.transform='rotate('+Math.atan2(dx*rx+dz*rz,dx*fx+dz*fz)+'rad)';$('pdist').textContent='Portal · '+Math.round(dd)+' m';ph.style.display=transitioning?'none':'flex'}
   else ph.style.display='none';
-  const tgt=P.pos.clone();tgt.y+=1.6;let cy=yaw;
+  const tgt=P.pos.clone();tgt.y+=1.6+P.fh*.8;let cy=yaw;
   if(P.lock&&!P.lock.dead){const d=P.lock.pos.clone().sub(P.pos);const want=heading(d.x,d.z);yaw+=adiff(yaw,want)*Math.min(1,dt*4);cy=yaw}
   const D=6.2,hgt=Math.sin(pitch)*D+1.2,hor=Math.cos(pitch)*D;cp.set(tgt.x+Math.sin(cy)*hor,tgt.y+hgt-1.2,tgt.z+Math.cos(cy)*hor);
   cp.x=clamp(cp.x,-38,38);cp.z=clamp(cp.z,-38,38);cp.y=Math.max(cp.y,.8);cam.position.lerp(cp,Math.min(1,dt*9));
@@ -423,7 +464,7 @@ function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
   flames.forEach(f=>{const k=1+Math.sin(clock*13+f.p)*.1+Math.sin(clock*7.3+f.p*2)*.08;f.s.scale.set(f.size*k,f.size*1.5*k,1)});
   lights.forEach(l=>{l.L.intensity=2.6+Math.sin(clock*11+l.p)*.5+Math.sin(clock*5.2+l.p)*.4});
   emberStep(dt);
-  $('hp').firstChild.style.width=P.hp/P.max*100+'%';$('st').firstChild.style.width=P.st+'%';
+  $('hp').firstChild.style.width=P.hp/P.max*100+'%';$('st').firstChild.style.width=P.st+'%';$('mp').firstChild.style.width=P.mp+'%';$('bP').classList.toggle('dim',P.mp<40);$('bF').classList.toggle('dim',!P.fly&&P.mp<15);
   const boss=foes.find(e=>e.boss&&!e.dead),bb=$('boss');
   if(boss){bb.style.display='block';$('bossname').textContent=TH.boss;$('bosshp').firstChild.style.width=Math.max(0,boss.hp/boss.max*100)+'%'}else bb.style.display='none';
   const lk=$('lock');if(P.lock&&!P.lock.dead){const q=P.lock.pos.clone();q.y+=2.4*P.lock.sc;q.project(cam);lk.style.display='block';lk.style.left=(q.x*.5+.5)*innerWidth+'px';lk.style.top=(-q.y*.5+.5)*innerHeight+'px'}else lk.style.display='none';
@@ -432,6 +473,6 @@ function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;clock+=dt;
 /* ---------- go! ---------- */
 const sv=loadSave();P.souls=sv.souls|0;startLevel(Math.max(1,sv.level|0));
 requestAnimationFrame(t=>{last=t;frame(t)});
-window.fortress={P,foes,hero,cam,spawn,scene,get yaw(){return yaw},set yaw(v){yaw=v},key,startAttack,roll,startLevel,completeLevel,nextWave,get level(){return level},get powers(){return [...powers]},
+window.fortress={P,foes,hero,cam,spawn,scene,get yaw(){return yaw},set yaw(v){yaw=v},key,startAttack,roll,startLevel,completeLevel,nextWave,castPower,toggleFly,get level(){return level},get powers(){return [...powers]},
   reset(){try{localStorage.removeItem(SAVE)}catch(e){}P.souls=0;startLevel(1)}};
 })();
